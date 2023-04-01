@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+from bs4 import BeautifulSoup
 import gradio as gr
 from modules import script_callbacks, scripts
 from modules.sd_models import CheckpointInfo, checkpoint_tiles, checkpoint_alisases, list_models
@@ -8,6 +9,9 @@ from modules.ui_components import FormRow, ToolButton
 import sqlite3
 from sqlite3 import Error
 from pathlib import Path
+import requests
+from requests.models import Response
+from bs4 import BeautifulSoup
 
 notes_symbol = '\U0001F4DD' # 📝
 conn = None
@@ -122,6 +126,31 @@ def on_save_note(model_name : str, note : str) -> None:
         return
     set_note(checkpoint_info.sha256, note)
 
+def on_civitai(model_name : str, model_note : str) -> str:
+    """
+    Gets the model description from Civitai and updates the model note.
+
+    :param model_name: The name of the model.
+    :param model_note: The current model note.
+    :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
+    """
+    checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
+    if checkpoint_info is None: # No model is selected
+        return
+    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{checkpoint_info.sha256}")
+    if model_version_info.status_code == 200:
+        model_version_info_json : dict = model_version_info.json()
+        civitai_model_id : str = model_version_info_json.get("modelId")
+        model_info : Response = requests.get(f"https://civitai.com/api/v1/models/{civitai_model_id}")
+        if model_info.status_code == 200:
+            model_info_json : dict = model_info.json()
+            formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{model_version_info_json.get("trainedWords")}'
+            soup = BeautifulSoup(formatted_model_description, 'html.parser')
+            formatted_model_description = soup.get_text("\n", strip=True)
+            on_save_note(model_name, formatted_model_description)
+            return gr.update(value=formatted_model_description)
+    return gr.update(value=model_note, interactive=True)
+
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
     Create the UI tab for model notes.
@@ -135,10 +164,12 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                 create_refresh_button(notes_model_select, list_models, lambda: {"choices": checkpoint_tiles()}, "refresh_notes_model_dropdown")
             if not opts.model_note_autosave:
                 save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
+            civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
         note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
         if opts.model_note_autosave:
             note_box.change(fn=on_save_note, inputs=[notes_model_select, note_box], outputs=[])
         notes_model_select.change(fn=on_model_selection, inputs=[notes_model_select], outputs=[note_box])
+        civitai_button.click(fn=on_civitai, inputs=[notes_model_select, note_box], outputs=[note_box])
         if not opts.model_note_autosave:
             save_button.click(fn=on_save_note, inputs=[notes_model_select, note_box], outputs=[])
     return (tab, "Model Notes", "model_notes"),
