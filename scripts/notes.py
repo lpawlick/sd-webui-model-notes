@@ -1,20 +1,39 @@
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
 import gradio as gr
-from modules import script_callbacks, scripts
+from modules import script_callbacks, scripts, hashes
 from modules.sd_models import CheckpointInfo, checkpoint_tiles, checkpoint_alisases, list_models
+from modules.sd_hijack import model_hijack
 from modules.ui import create_refresh_button, save_style_symbol
-from modules.shared import opts, OptionInfo
+from modules.shared import opts, OptionInfo, hypernetworks, reload_hypernetworks
 from modules.ui_components import FormRow, ToolButton
+from modules.hypernetworks import hypernetwork
 import sqlite3
 from sqlite3 import Error
 from pathlib import Path
 import requests
 from requests.models import Response
 from bs4 import BeautifulSoup
+from enum import Enum
+from modules.paths_internal import extensions_builtin_dir
+import importlib.util
+import sys
+
+# Build-in extensions are loaded after extensions so we need to add it manually
+sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
+import lora
+# Remove from path again so we don't affect other modules
+sys.path.remove(str(Path(extensions_builtin_dir, "Lora")))
 
 notes_symbol = '\U0001F4DD' # 📝
 conn = None
+reload_hypernetworks() # No hypernetworks are loaded yet so we have to load the manually
+
+class ModelType(Enum):
+    Checkpoint = 1
+    Hypernetwork = 2
+    LoRA = 3
+    Textual_Inversion = 4
 
 def create_connection(db_file: str) -> None:
     """ 
@@ -53,27 +72,56 @@ def setup_db() -> None:
     
     :return: None.
     """
+    meta_table = """
+    CREATE TABLE IF NOT EXISTS meta (
+        version text PRIMARY KEY
+    );
+    """
     notes_table = """
     CREATE TABLE IF NOT EXISTS notes (
         model_hash text PRIMARY KEY,
-        note text NOT NULL
+        note text NOT NULL,
+        model_type text NOT NULL
     );
     """
+    execute_sql(meta_table)
     execute_sql(notes_table)
+    upgrade_db()
 
+def upgrade_db() -> None:
+    """
+    Checks the version and upgrades the database from a previous version if needed
+    
+    :return: None.
+    """
+    get_version = """
+    SELECT MAX(version) FROM meta;
+    """
+    set_version = """
+    REPLACE INTO meta(version) VALUES(?);
+    """
+    rows = execute_sql(get_version)
+    version = rows[0][0] if rows != [] else "1"
+    if version == "1":
+        upgrade_note_table = f"""
+        ALTER TABLE notes ADD COLUMN model_type text NOT NULL DEFAULT '{ModelType.Checkpoint.value}';
+        """
+        execute_sql(upgrade_note_table)
+        execute_sql(set_version, 2)
 
-def set_note(model_hash: str, note: str) -> None:
+def set_note(model_type : ModelType, model_hash: str, note: str) -> None:
     """
     Save a note in the database for the given model.
     
+    :param model_type: The type of the model.
     :param model_hash: The full sha256 hash of the model.
     :param note: The note that should be saved.
     :return: None.
     """
     sql = """
-    REPLACE INTO notes(model_hash, note) VALUES(?, ?);
+    REPLACE INTO notes(model_hash, note, model_type) VALUES(?, ?, ?);
     """
-    execute_sql(sql, model_hash, note)
+    execute_sql(sql, model_hash, note, model_type.value)
 
 def get_note(model_hash: str) -> str:
     """
@@ -100,44 +148,80 @@ def on_app_started(gradio, fastapi) -> None:
     create_connection(Path(Path(__file__).parent.parent.resolve(), "notes.db"))
     setup_db()
 
-def on_model_selection(model_name : str) -> str:
+def on_model_selection(model_type : ModelType, model_name : str) -> str:
     """
     Get the note associated with the selected model.
     
+    :param model_type: The type of the model.
     :param model_name: The name of the model.
     :return: The note associated with the model.
     """
-    checkpoint_info : CheckpointInfo = checkpoint_alisases.get(model_name)
-    if checkpoint_info.sha256 is None: # Calculate hash if not already exists
-        checkpoint_info.calculate_shorthash()
-    result = get_note(str(checkpoint_info.sha256))
+    if model_type == ModelType.Checkpoint:
+        checkpoint_info : CheckpointInfo = checkpoint_alisases.get(model_name)
+        if checkpoint_info.sha256 is None: # Calculate hash if not already exists
+            checkpoint_info.calculate_shorthash()
+        sha256 = checkpoint_info.sha256
+    elif model_type == ModelType.Hypernetwork:
+        hypernetwork_path = hypernetworks.get(model_name)
+        sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
+    elif model_type == ModelType.LoRA:
+        lora_on_disk = lora.available_loras[model_name]
+        sha256 = hashes.sha256(lora_on_disk.filename, f'lora/{lora_on_disk.name}')
+    elif model_type == ModelType.Textual_Inversion:
+        embedding = model_hijack.embedding_db.word_embeddings[model_name]
+        sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
+    result = get_note(str(sha256))
     return gr.update(value=result, interactive=True)
 
-def on_save_note(model_name : str, note : str) -> None:
+def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     """
     Save a note for the selected model.
     
+    :param model_type: The type of the model.
     :param model_name: The name of the model.
     :param note: The note that should be saved.
     :return: The note associated with the model.
     """
-    checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
-    if checkpoint_info is None:
-        return
-    set_note(checkpoint_info.sha256, note)
+    if model_type == ModelType.Checkpoint:
+        checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
+        if checkpoint_info is None:
+            return
+        sha256 = checkpoint_info.sha256
+    elif model_type == ModelType.Hypernetwork:
+        hypernetwork_path = hypernetworks.get(model_name)
+        sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
+    elif model_type == ModelType.LoRA:
+        lora_on_disk = lora.available_loras[model_name]
+        sha256 = hashes.sha256(lora_on_disk.filename, f'lora/{lora_on_disk.name}')
+    elif model_type == ModelType.Textual_Inversion:
+        embedding = model_hijack.embedding_db.word_embeddings[model_name]
+        sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
+    set_note(model_type, sha256, note)
 
-def on_civitai(model_name : str, model_note : str) -> str:
+def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
     """
     Gets the model description from Civitai and updates the model note.
 
+    :param model_type: The type of the model.
     :param model_name: The name of the model.
     :param model_note: The current model note.
     :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
     """
-    checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
-    if checkpoint_info is None: # No model is selected
-        return
-    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{checkpoint_info.sha256}")
+    if model_type == ModelType.Checkpoint:
+        checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
+        if checkpoint_info is None:
+            return
+        sha256 = checkpoint_info.sha256
+    elif model_type == ModelType.Hypernetwork:
+        hypernetwork_path = hypernetworks.get(model_name)
+        sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
+    elif model_type == ModelType.LoRA:
+        lora_on_disk = lora.available_loras[model_name]
+        sha256 = hashes.sha256(lora_on_disk.filename, f'lora/{lora_on_disk.name}')
+    elif model_type == ModelType.Textual_Inversion:
+        embedding = model_hijack.embedding_db.word_embeddings[model_name]
+        sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
+    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{sha256}")
     if model_version_info.status_code == 200:
         model_version_info_json : dict = model_version_info.json()
         civitai_model_id : str = model_version_info_json.get("modelId")
@@ -147,9 +231,26 @@ def on_civitai(model_name : str, model_note : str) -> str:
             formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{model_version_info_json.get("trainedWords")}'
             soup = BeautifulSoup(formatted_model_description, 'html.parser')
             formatted_model_description = soup.get_text("\n", strip=True)
-            on_save_note(model_name, formatted_model_description)
             return gr.update(value=formatted_model_description)
     return gr.update(value=model_note, interactive=True)
+
+def get_textual_inversion_embeddings() -> List[str]:
+    embeddings = []
+    for embedding in model_hijack.embedding_db.word_embeddings.values():
+        embeddings.append(embedding.name)
+    embeddings.sort()
+    return embeddings
+
+def get_hypernetworks() -> List[str]:
+    hypernetworks_names = list(hypernetworks.keys())
+    hypernetworks_names.sort()
+    return hypernetworks_names
+
+def get_loras() -> List[str]:
+    loras = []
+    for name in lora.available_loras.keys():
+        loras.append(name)
+    return loras
 
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
@@ -157,22 +258,57 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     
     :return: A tuple containing the UI tab for model notes.
     """
-    with gr.Blocks(analytics_enabled=False) as tab:
-        with FormRow(elem_id="notes_mode_selection"):
-            with FormRow(variant='panel'):
-                notes_model_select = gr.Dropdown(checkpoint_tiles(), elem_id="notes_model_dropdown", label="Select Stable Diffusion Checkpoint", interactive=True)
-                create_refresh_button(notes_model_select, list_models, lambda: {"choices": checkpoint_tiles()}, "refresh_notes_model_dropdown")
-            if not opts.model_note_autosave:
-                save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
-            civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
-        note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
-        if opts.model_note_autosave:
-            note_box.change(fn=on_save_note, inputs=[notes_model_select, note_box], outputs=[])
-        notes_model_select.change(fn=on_model_selection, inputs=[notes_model_select], outputs=[note_box])
-        civitai_button.click(fn=on_civitai, inputs=[notes_model_select, note_box], outputs=[note_box])
-        if not opts.model_note_autosave:
-            save_button.click(fn=on_save_note, inputs=[notes_model_select, note_box], outputs=[])
-    return (tab, "Model Notes", "model_notes"),
+    suported_models = ["Textual Inversion", "Hypernetworks", "Checkpoints", "LoRA"]
+    with gr.Blocks(analytics_enabled=False) as main_tab:
+        for model in suported_models:
+            with gr.Tab(model):
+                with FormRow(elem_id="notes_mode_selection"):
+                    with FormRow(variant='panel'):
+                        if model == "Textual Inversion":
+                            notes_model_select = gr.Dropdown(get_textual_inversion_embeddings(), elem_id="notes_embedding_model_dropdown", label="Select Textual Inversion", interactive=True)
+                            create_refresh_button(notes_model_select, lambda: model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True), lambda: {"choices": get_textual_inversion_embeddings()}, "refresh_notes_embedding_model_dropdown")
+                        elif model == "Hypernetworks":
+                            notes_model_select = gr.Dropdown(get_hypernetworks(), elem_id="notes__hypernetwork_model_dropdown", label="Select Hypernetwork", interactive=True)
+                            create_refresh_button(notes_model_select, reload_hypernetworks, lambda: {"choices": get_hypernetworks()}, "refresh_notes_hypernetwork_model_dropdown")
+                        elif model == "LoRA":
+                            notes_model_select = gr.Dropdown(get_loras(), elem_id="notes_lora_model_dropdown", label="Select LoRA", interactive=True)
+                            create_refresh_button(notes_model_select, lora.list_available_loras, lambda: {"choices": get_loras()}, "refresh_notes_lora_model_dropdown")
+                        elif model == "Checkpoints":
+                            notes_model_select = gr.Dropdown(checkpoint_tiles(), elem_id="notes_lora_model_dropdown", label="Select Checkpoint", interactive=True)
+                            create_refresh_button(notes_model_select, list_models, lambda: {"choices": checkpoint_tiles()}, "refresh_notes_lora_model_dropdown")
+                    if not opts.model_note_autosave:
+                        save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
+                    civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
+                note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
+                if model == "Textual Inversion":
+                    notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Textual_Inversion, select), inputs=[notes_model_select], outputs=[note_box])
+                    if opts.model_note_autosave:
+                        note_box.change(fn=lambda select, note: on_save_note(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    else:
+                        save_button.click(fn=lambda select, note: on_save_note(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
+                elif model == "Hypernetworks":
+                    notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Hypernetwork, select), inputs=[notes_model_select], outputs=[note_box])
+                    if opts.model_note_autosave:
+                        note_box.change(fn=lambda select, note: on_save_note(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    else:
+                        save_button.click(fn=lambda select, note: on_save_note(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
+                elif model == "LoRA":
+                    notes_model_select.change(fn=lambda select: on_model_selection(ModelType.LoRA, select), inputs=[notes_model_select], outputs=[note_box])
+                    if opts.model_note_autosave:
+                        note_box.change(fn=lambda select, note: on_save_note(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    else:
+                        save_button.click(fn=lambda select, note: on_save_note(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    civitai_button.click(fn=lambda select, note: on_civitai(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
+                elif model == "Checkpoints":
+                    notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Checkpoint, select), inputs=[notes_model_select], outputs=[note_box])
+                    if opts.model_note_autosave:
+                        note_box.change(fn=lambda select, note: on_save_note(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    else:
+                        save_button.click(fn=lambda select, note: on_save_note(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[])
+                    civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
+    return (main_tab, "Model Notes", "model_notes"),
 
 def on_ui_settings() -> None:
     """
@@ -236,7 +372,7 @@ class NoteButtons(scripts.Script):
         :param note: The note that should be saved for the selected model.
         :return: None
         """
-        set_note(opts.sd_checkpoint_hash, note)
+        set_note(ModelType.Checkpoint, opts.sd_checkpoint_hash, note)
 
     def on_get_note(self) -> gr.update:
         """
