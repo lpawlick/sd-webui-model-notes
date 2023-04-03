@@ -7,7 +7,6 @@ from modules.sd_hijack import model_hijack
 from modules.ui import create_refresh_button, save_style_symbol
 from modules.shared import opts, OptionInfo, hypernetworks, reload_hypernetworks
 from modules.ui_components import FormRow, ToolButton
-from modules.hypernetworks import hypernetwork
 import sqlite3
 from sqlite3 import Error
 from pathlib import Path
@@ -16,7 +15,7 @@ from requests.models import Response
 from bs4 import BeautifulSoup
 from enum import Enum
 from modules.paths_internal import extensions_builtin_dir
-import importlib.util
+
 import sys
 
 # Build-in extensions are loaded after extensions so we need to add it manually
