@@ -15,7 +15,7 @@ from requests.models import Response
 from bs4 import BeautifulSoup
 from enum import Enum
 from modules.paths_internal import extensions_builtin_dir
-
+from starlette.responses import JSONResponse
 import sys
 
 # Build-in extensions are loaded after extensions so we need to add it manually
@@ -136,6 +136,110 @@ def get_note(model_hash: str) -> str:
     note : str = rows[0][0] if rows != [] else ""
     return note
 
+# Helper function to calculate Levenshtein distance between two strings
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """
+    Calculates the Levenshtein distance between two strings.
+
+    :param s1: The first string to compare.
+    :param s2: The second string to compare.
+    :return: An integer representing the number of edits required to transform s1 into s2.
+    """
+    if len(s1) > len(s2):
+        s1, s2 = s2, s1
+    distances = range(len(s1) + 1)
+    for i2, c2 in enumerate(s2):
+        distances_ = [i2+1]
+        for i1, c1 in enumerate(s1):
+            if c1 == c2:
+                distances_.append(distances[i1])
+            else:
+                distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+        distances = distances_
+    return distances[-1]
+
+def match_model_type(string) -> ModelType:
+    """
+    Matches a string to a ModelType by finding the closest match based on Levenshtein distance.
+
+    :param string: The string to match.
+    :return: A ModelType representing the closest match to the input string.
+    """
+    # Convert input string to lowercase and remove spaces
+    string = string.lower().replace(" ", "_")
+
+    # Find the closest match to the input string
+    closest_match = None
+    closest_distance = float("inf")
+    for member in ModelType:
+        distance = levenshtein_distance(string, member.name.lower())
+        if distance < closest_distance:
+            closest_distance = distance
+            closest_match = member
+
+    # Return the closest match
+    return closest_match
+
+def api_get_note_by_hash(hash : str) -> JSONResponse:
+    """
+    Get the note from the given model.
+    
+    :param hash: The sha256 hash of the model.
+    :return: JSONResponse containing the "note".
+    """
+    return JSONResponse({"note": get_note(hash)})
+
+def api_get_note_by_name(type : str, name : str) -> JSONResponse:
+    """
+    Get the note from the given model.
+    
+    :param type: The type of the model. Any format of string is accepted and will be converted to the correct format.
+    :param name: The name of the model.
+    :return: JSONResponse containing the "note".
+    """
+    real_model_type = match_model_type(type)
+    sha256 = get_model_sha256(real_model_type, name)
+    return JSONResponse({"note": get_note(sha256)})
+
+def api_set_note_by_hash(type : str, hash : str, note : str) -> JSONResponse:
+    """
+    Sets the note for the given model.
+    
+    :param type: The type of the model. Any format of string is accepted and will be converted to the correct format.
+    :param hash: The sha256 hash of the model.
+    :param note: The note that should be saved.
+    :return: JSONResponse containing the "note".
+    """
+    real_model_type = match_model_type(type)
+    set_note(model_hash=hash, note=note, model_type=real_model_type)
+    return JSONResponse({"success": True})
+
+def api_set_note_by_name(type : str, name : str, note : str) -> JSONResponse:
+    """
+    Sets the note for the given model.
+    
+    :param type: The type of the model. Any format of string is accepted and will be converted to the correct format.
+    :param name: The name of the model.
+    :param note: The note that should be saved.
+    :return: JSONResponse containing the "note".
+    """
+    real_model_type = match_model_type(type)
+    sha256 = get_model_sha256(real_model_type, name)
+    set_note(model_hash=sha256, note=note, model_type=real_model_type)
+    return JSONResponse({"success": True})
+
+def add_api_endpoints(fastapi) -> None:
+    """
+    Adds all API endpoints
+    
+    :param fastapi: Instance of fastapi.
+    :return: None.
+    """
+    fastapi.add_api_route("/model_notes/get_note_by_hash", api_get_note_by_hash, methods=["GET"])
+    fastapi.add_api_route("/model_notes/get_note_by_name", api_get_note_by_name, methods=["GET"])
+    fastapi.add_api_route("/model_notes/set_note_by_hash", api_set_note_by_hash, methods=["POST"])
+    fastapi.add_api_route("/model_notes/set_note_by_name", api_set_note_by_name, methods=["POST"])
+
 def on_app_started(gradio, fastapi) -> None:
     """
     Called when the application starts.
@@ -146,6 +250,7 @@ def on_app_started(gradio, fastapi) -> None:
     """
     create_connection(Path(Path(__file__).parent.parent.resolve(), "notes.db"))
     setup_db()
+    add_api_endpoints(fastapi)
 
 def get_model_sha256(model_type : ModelType, model_name : str) -> str:
     """
@@ -191,7 +296,7 @@ def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     :param note: The note that should be saved.
     :return: The note associated with the model.
     """
-    set_note(model_type, get_model_sha256(model_type, model_name), note)
+    set_note(model_hash=get_model_sha256(model_type, model_name), note=note, model_type=model_type)
 
 def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
     """
@@ -353,7 +458,7 @@ class NoteButtons(scripts.Script):
         :param note: The note that should be saved for the selected model.
         :return: None
         """
-        set_note(ModelType.Checkpoint, opts.sd_checkpoint_hash, note)
+        set_note(model_hash=opts.sd_checkpoint_hash, note=note, model_type=ModelType.Checkpoint)
 
     def on_get_note(self) -> gr.update:
         """
