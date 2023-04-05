@@ -147,18 +147,18 @@ def on_app_started(gradio, fastapi) -> None:
     create_connection(Path(Path(__file__).parent.parent.resolve(), "notes.db"))
     setup_db()
 
-def on_model_selection(model_type : ModelType, model_name : str) -> str:
+def get_model_sha256(model_type : ModelType, model_name : str) -> str:
     """
-    Get the note associated with the selected model.
-    
-    :param model_type: The type of the model.
+    Returns the sha256 of the given model.
+
+    :param model_type: The type of model.
     :param model_name: The name of the model.
-    :return: The note associated with the model.
+    :return: The sha256 of the model.
     """
     if model_type == ModelType.Checkpoint:
-        checkpoint_info : CheckpointInfo = checkpoint_alisases.get(model_name)
-        if checkpoint_info.sha256 is None: # Calculate hash if not already exists
-            checkpoint_info.calculate_shorthash()
+        checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
+        if checkpoint_info is None:
+            return
         sha256 = checkpoint_info.sha256
     elif model_type == ModelType.Hypernetwork:
         hypernetwork_path = hypernetworks.get(model_name)
@@ -169,7 +169,17 @@ def on_model_selection(model_type : ModelType, model_name : str) -> str:
     elif model_type == ModelType.Textual_Inversion:
         embedding = model_hijack.embedding_db.word_embeddings[model_name]
         sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
-    result = get_note(str(sha256))
+    return str(sha256)
+
+def on_model_selection(model_type : ModelType, model_name : str) -> str:
+    """
+    Get the note associated with the selected model.
+    
+    :param model_type: The type of the model.
+    :param model_name: The name of the model.
+    :return: The note associated with the model.
+    """
+    result = get_note(get_model_sha256(model_type, model_name))
     return gr.update(value=result, interactive=True)
 
 def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
@@ -181,21 +191,7 @@ def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     :param note: The note that should be saved.
     :return: The note associated with the model.
     """
-    if model_type == ModelType.Checkpoint:
-        checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
-        if checkpoint_info is None:
-            return
-        sha256 = checkpoint_info.sha256
-    elif model_type == ModelType.Hypernetwork:
-        hypernetwork_path = hypernetworks.get(model_name)
-        sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
-    elif model_type == ModelType.LoRA:
-        lora_on_disk = lora.available_loras[model_name]
-        sha256 = hashes.sha256(lora_on_disk.filename, f'lora/{lora_on_disk.name}')
-    elif model_type == ModelType.Textual_Inversion:
-        embedding = model_hijack.embedding_db.word_embeddings[model_name]
-        sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
-    set_note(model_type, sha256, note)
+    set_note(model_type, get_model_sha256(model_type, model_name), note)
 
 def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
     """
@@ -206,21 +202,7 @@ def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> st
     :param model_note: The current model note.
     :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
     """
-    if model_type == ModelType.Checkpoint:
-        checkpoint_info : Optional[CheckpointInfo] = checkpoint_alisases.get(model_name)
-        if checkpoint_info is None:
-            return
-        sha256 = checkpoint_info.sha256
-    elif model_type == ModelType.Hypernetwork:
-        hypernetwork_path = hypernetworks.get(model_name)
-        sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
-    elif model_type == ModelType.LoRA:
-        lora_on_disk = lora.available_loras[model_name]
-        sha256 = hashes.sha256(lora_on_disk.filename, f'lora/{lora_on_disk.name}')
-    elif model_type == ModelType.Textual_Inversion:
-        embedding = model_hijack.embedding_db.word_embeddings[model_name]
-        sha256 = hashes.sha256(embedding.filename, f'textual_inversion/{embedding.name}')
-    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{sha256}")
+    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{get_model_sha256(model_type, model_name)}")
     if model_version_info.status_code == 200:
         model_version_info_json : dict = model_version_info.json()
         civitai_model_id : str = model_version_info_json.get("modelId")
