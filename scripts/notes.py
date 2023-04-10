@@ -5,7 +5,7 @@ from modules import script_callbacks, scripts, hashes
 from modules.sd_models import CheckpointInfo, checkpoint_tiles, checkpoint_alisases, list_models
 from modules.sd_hijack import model_hijack
 from modules.ui import create_refresh_button, save_style_symbol
-from modules.shared import opts, OptionInfo, hypernetworks, reload_hypernetworks
+from modules import shared
 from modules.ui_components import FormRow, ToolButton
 import sqlite3
 from sqlite3 import Error
@@ -26,7 +26,7 @@ sys.path.remove(str(Path(extensions_builtin_dir, "Lora")))
 
 notes_symbol = '\U0001F4DD' # 📝
 conn = None
-reload_hypernetworks() # No hypernetworks are loaded yet so we have to load the manually
+shared.reload_hypernetworks() # No hypernetworks are loaded yet so we have to load the manually
 
 class ModelType(Enum):
     Checkpoint = 1
@@ -266,7 +266,7 @@ def get_model_sha256(model_type : ModelType, model_name : str) -> str:
             return
         sha256 = checkpoint_info.sha256
     elif model_type == ModelType.Hypernetwork:
-        hypernetwork_path = hypernetworks.get(model_name)
+        hypernetwork_path = shared.hypernetworks.get(model_name)
         sha256 = hashes.sha256(hypernetwork_path, f'hypernet/{model_name}')
     elif model_type == ModelType.LoRA:
         lora_on_disk = lora.available_loras[model_name]
@@ -328,7 +328,7 @@ def get_textual_inversion_embeddings() -> List[str]:
     return embeddings
 
 def get_hypernetworks() -> List[str]:
-    hypernetworks_names = list(hypernetworks.keys())
+    hypernetworks_names = list(shared.hypernetworks.keys())
     hypernetworks_names.sort()
     return hypernetworks_names
 
@@ -355,41 +355,41 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                             create_refresh_button(notes_model_select, lambda: model_hijack.embedding_db.load_textual_inversion_embeddings(force_reload=True), lambda: {"choices": get_textual_inversion_embeddings()}, "refresh_notes_embedding_model_dropdown")
                         elif model == "Hypernetworks":
                             notes_model_select = gr.Dropdown(get_hypernetworks(), elem_id="notes__hypernetwork_model_dropdown", label="Select Hypernetwork", interactive=True)
-                            create_refresh_button(notes_model_select, reload_hypernetworks, lambda: {"choices": get_hypernetworks()}, "refresh_notes_hypernetwork_model_dropdown")
+                            create_refresh_button(notes_model_select, shared.reload_hypernetworks, lambda: {"choices": get_hypernetworks()}, "refresh_notes_hypernetwork_model_dropdown")
                         elif model == "LoRA":
                             notes_model_select = gr.Dropdown(get_loras(), elem_id="notes_lora_model_dropdown", label="Select LoRA", interactive=True)
                             create_refresh_button(notes_model_select, lora.list_available_loras, lambda: {"choices": get_loras()}, "refresh_notes_lora_model_dropdown")
                         elif model == "Checkpoints":
                             notes_model_select = gr.Dropdown(checkpoint_tiles(), elem_id="notes_lora_model_dropdown", label="Select Checkpoint", interactive=True)
                             create_refresh_button(notes_model_select, list_models, lambda: {"choices": checkpoint_tiles()}, "refresh_notes_lora_model_dropdown")
-                    if not opts.model_note_autosave:
+                    if not shared.opts.model_note_autosave:
                         save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
                     civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
                 note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
                 if model == "Textual Inversion":
                     notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Textual_Inversion, select), inputs=[notes_model_select], outputs=[note_box])
-                    if opts.model_note_autosave:
+                    if shared.opts.model_note_autosave:
                         note_box.change(fn=lambda select, note: on_save_note(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     else:
                         save_button.click(fn=lambda select, note: on_save_note(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Textual_Inversion, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
                 elif model == "Hypernetworks":
                     notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Hypernetwork, select), inputs=[notes_model_select], outputs=[note_box])
-                    if opts.model_note_autosave:
+                    if shared.opts.model_note_autosave:
                         note_box.change(fn=lambda select, note: on_save_note(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     else:
                         save_button.click(fn=lambda select, note: on_save_note(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Hypernetwork, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
                 elif model == "LoRA":
                     notes_model_select.change(fn=lambda select: on_model_selection(ModelType.LoRA, select), inputs=[notes_model_select], outputs=[note_box])
-                    if opts.model_note_autosave:
+                    if shared.opts.model_note_autosave:
                         note_box.change(fn=lambda select, note: on_save_note(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     else:
                         save_button.click(fn=lambda select, note: on_save_note(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     civitai_button.click(fn=lambda select, note: on_civitai(ModelType.LoRA, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
                 elif model == "Checkpoints":
                     notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Checkpoint, select), inputs=[notes_model_select], outputs=[note_box])
-                    if opts.model_note_autosave:
+                    if shared.opts.model_note_autosave:
                         note_box.change(fn=lambda select, note: on_save_note(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     else:
                         save_button.click(fn=lambda select, note: on_save_note(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[])
@@ -402,7 +402,7 @@ def on_ui_settings() -> None:
 
     :return: None
     """
-    opts.add_option("model_note_autosave", OptionInfo(default=False, label="Enable autosaving edits in note fields", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
+    shared.opts.add_option("model_note_autosave", shared.OptionInfo(default=False, label="Enable autosaving edits in note fields", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
 
 def on_script_unloaded() -> None:
     """
@@ -458,7 +458,7 @@ class NoteButtons(scripts.Script):
         :param note: The note that should be saved for the selected model.
         :return: None
         """
-        set_note(model_hash=opts.sd_checkpoint_hash, note=note, model_type=ModelType.Checkpoint)
+        set_note(model_hash=shared.opts.sd_checkpoint_hash, note=note, model_type=ModelType.Checkpoint)
 
     def on_get_note(self) -> gr.update:
         """
@@ -466,7 +466,7 @@ class NoteButtons(scripts.Script):
         
         :return: Gradio update setting the value to the note content and the lable to the models name.
         """
-        return gr.update(value=get_note(opts.sd_checkpoint_hash), label=f"Note on {opts.sd_model_checkpoint}")
+        return gr.update(value=get_note(shared.opts.sd_checkpoint_hash), label=f"Note on {shared.opts.sd_model_checkpoint}")
 
     def after_component(self, component, **kwargs):
         """
@@ -500,7 +500,7 @@ class NoteButtons(scripts.Script):
             with gr.Column(min_width=1920, elem_id="notes_container", visible=False) as self.note_container:  # Pushes our stuff onto a new row at 1080p screen resolution
                 with FormRow(elem_id="notes_mode_selection"):
                     tex = gr.Textbox(label="Note", lines=5, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True)
-                if opts.model_note_autosave:
+                if shared.opts.model_note_autosave:
                     tex.change(fn=self.on_save_note, inputs=[tex], outputs=[])
                 else:
                     save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
