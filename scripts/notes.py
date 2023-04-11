@@ -17,6 +17,7 @@ from enum import Enum
 from modules.paths_internal import extensions_builtin_dir
 from starlette.responses import JSONResponse
 import sys
+import threading
 
 # Build-in extensions are loaded after extensions so we need to add it manually
 sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
@@ -26,6 +27,7 @@ sys.path.remove(str(Path(extensions_builtin_dir, "Lora")))
 
 notes_symbol = '\U0001F4DD' # 📝
 conn = None
+conn_lock = threading.Lock()
 shared.reload_hypernetworks() # No hypernetworks are loaded yet so we have to load the manually
 
 class ModelType(Enum):
@@ -56,10 +58,11 @@ def execute_sql(sql: str, *data) -> list:
     :return: A list of rows.
     """
     try:
-        cur = conn.cursor()
-        cur.execute(sql, data)
-        conn.commit()
-        return cur.fetchall()
+        with conn_lock:
+            with conn:
+                cur = conn.cursor()
+                cur.execute(sql, data)
+                return cur.fetchall()
     except Error as e:
         print("Query:", sql)
         print("Data:", data)
