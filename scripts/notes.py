@@ -301,15 +301,7 @@ def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     """
     set_note(model_hash=get_model_sha256(model_type, model_name), note=note, model_type=model_type)
 
-def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
-    """
-    Gets the model description from Civitai and updates the model note.
-
-    :param model_type: The type of the model.
-    :param model_name: The name of the model.
-    :param model_note: The current model note.
-    :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
-    """
+def download_description_from_civit(model_type : ModelType, model_name : str):
     model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{get_model_sha256(model_type, model_name)}")
     if model_version_info.status_code == 200:
         model_version_info_json : dict = model_version_info.json()
@@ -320,8 +312,103 @@ def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> st
             formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{model_version_info_json.get("trainedWords")}'
             soup = BeautifulSoup(formatted_model_description, 'html.parser')
             formatted_model_description = soup.get_text("\n", strip=True)
-            return gr.update(value=formatted_model_description)
-    return gr.update(value=model_note, interactive=True)
+            return formatted_model_description
+    return ""
+
+def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
+    """
+    Gets the model description from Civitai and updates the model note.
+
+    :param model_type: The type of the model.
+    :param model_name: The name of the model.
+    :param model_note: The current model note.
+    :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
+    """
+    description = download_description_from_civit(model_type=model_type, model_name=model_name)
+    if description != "":
+        return gr.update(value=description)
+    else:
+        return gr.update(value=model_note, interactive=True)
+
+def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
+    """
+    Gets the model descriptions for all selected models from civitai
+
+    :param model_types: The selected model types.
+    :param overwrite: Whether to overwrite existing notes.
+    :param pr: The progress bar. Do not set this manually.
+    :return: A string containing information about the download
+    """
+    
+    if model_types == []:
+        return "No models selected, nothing to download."
+
+    stats = {model: {"success": 0, "failed": 0, "skipped": 0} for model in model_types}
+
+    if "Textual Inversion" in model_types:
+        textual_inversions = get_textual_inversion_embeddings()
+        for embedding in pr.tqdm(textual_inversions, desc="Downloading Textual Inversion Descriptions", total=len(textual_inversions), unit="embeddings"):
+            description = download_description_from_civit(ModelType.Textual_Inversion, embedding)
+            if not overwrite:
+                note = get_note(model_hash=get_model_sha256(ModelType.Textual_Inversion, embedding))
+                if note != "":
+                    stats["Textual Inversion"]["skipped"] += 1
+                    continue
+            if description != "":
+                set_note(model_hash=get_model_sha256(ModelType.Textual_Inversion, embedding), note=description, model_type=ModelType.Textual_Inversion)
+                stats["Textual Inversion"]["success"] += 1
+            else:
+                stats["Textual Inversion"]["failed"] += 1
+
+    if "Hypernetworks" in model_types:
+        hypernetworks = get_hypernetworks()
+        for hypernetwork in pr.tqdm(hypernetworks, desc="Downloading Hypernetwork Descriptions", total=len(hypernetworks), unit="hypernetworks"):
+            description = download_description_from_civit(ModelType.Hypernetwork, hypernetwork)
+            if not overwrite:
+                note = get_note(model_hash=get_model_sha256(ModelType.Hypernetwork, hypernetwork))
+                if note != "":
+                    stats["Hypernetworks"]["skipped"] += 1
+                    continue
+            if description != "":
+                set_note(model_hash=get_model_sha256(ModelType.Hypernetwork, hypernetwork), note=description, model_type=ModelType.Hypernetwork)
+                stats["Hypernetworks"]["success"] += 1
+            else:
+                stats["Hypernetworks"]["failed"] += 1
+
+    if "Checkpoints" in model_types:
+        checkpoints = checkpoint_tiles()
+        for checkpoint in pr.tqdm(checkpoints, desc="Downloading Checkpoint Descriptions", total=len(checkpoints), unit="checkpoints"):
+            description = download_description_from_civit(ModelType.Checkpoint, checkpoint)
+            if not overwrite:
+                note = get_note(model_hash=get_model_sha256(ModelType.Checkpoint, checkpoint))
+                if note != "":
+                    stats["Checkpoints"]["skipped"] += 1
+                    continue
+            if description != "":
+                set_note(model_hash=get_model_sha256(ModelType.Checkpoint, checkpoint), note=description, model_type=ModelType.Checkpoint)
+                stats["Checkpoints"]["success"] += 1
+            else:
+                stats["Checkpoints"]["failed"] += 1
+
+    if "LoRA" in model_types:
+        loras = get_loras()
+        for lora in pr.tqdm(loras, desc="Downloading LoRA Descriptions", total=len(loras), unit="LoRAs"):
+            description = download_description_from_civit(ModelType.LoRA, lora)
+            if not overwrite:
+                note = get_note(model_hash=get_model_sha256(ModelType.LoRA, lora))
+                if note != "":
+                    stats["LoRA"]["skipped"] += 1
+                    continue
+            if description != "":
+                set_note(model_hash=get_model_sha256(ModelType.LoRA, lora), note=description, model_type=ModelType.LoRA)
+                stats["LoRA"]["success"] += 1
+            else:
+                stats["LoRA"]["failed"] += 1
+
+    output_str = ""
+    for key, value in stats.items():
+        output_str += f"{key}: {value['success']} succeeded, {value['failed']} failed, and {value['skipped']} skipped.\n"
+    return output_str
 
 def get_textual_inversion_embeddings() -> List[str]:
     embeddings = []
@@ -347,9 +434,9 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     
     :return: A tuple containing the UI tab for model notes.
     """
-    suported_models = ["Textual Inversion", "Hypernetworks", "Checkpoints", "LoRA"]
+    supported_models = ["Textual Inversion", "Hypernetworks", "Checkpoints", "LoRA"]
     with gr.Blocks(analytics_enabled=False) as main_tab:
-        for model in suported_models:
+        for model in supported_models:
             with gr.Tab(model):
                 with FormRow(elem_id="notes_mode_selection"):
                     with FormRow(variant='panel'):
@@ -397,6 +484,14 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                     else:
                         save_button.click(fn=lambda select, note: on_save_note(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[])
                     civitai_button.click(fn=lambda select, note: on_civitai(ModelType.Checkpoint, select, note), inputs=[notes_model_select, note_box], outputs=[note_box])
+
+        with gr.Tab("Civitai"):
+            model_types = gr.CheckboxGroup(supported_models, label="Models", info="Select Model types to get descriptions for")
+            overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes with Civitai descriptions")
+            get_all_button = gr.Button(value="Get all descriptions from Civitai", variant="primary")
+            progress_bar = gr.Label(value="", label="Result")
+            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite], outputs=[progress_bar])
+
     return (main_tab, "Model Notes", "model_notes"),
 
 def on_ui_settings() -> None:
