@@ -18,6 +18,7 @@ from modules.paths_internal import extensions_builtin_dir
 from starlette.responses import JSONResponse
 import sys
 import threading
+import time
 
 # Build-in extensions are loaded after extensions so we need to add it manually
 sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
@@ -313,6 +314,12 @@ def download_description_from_civit(model_type : ModelType, model_name : str):
             soup = BeautifulSoup(formatted_model_description, 'html.parser')
             formatted_model_description = soup.get_text("\n", strip=True)
             return formatted_model_description
+        elif model_info.status_code == 429:
+            time.sleep(int(model_info.headers["Retry-After"]))
+            return download_description_from_civit(model_type, model_name)
+    elif model_version_info.status_code == 429:
+        time.sleep(int(model_version_info.headers["Retry-After"]))
+        return download_description_from_civit(model_type, model_name)
     return ""
 
 def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
