@@ -289,7 +289,7 @@ def on_model_selection(model_type : ModelType, model_name : str) -> str:
     :return: The note associated with the model.
     """
     result = get_note(get_model_sha256(model_type, model_name))
-    return gr.update(value=result, interactive=True)
+    return gr.update(value=result, interactive=True, lines=result.count("\n") + 1)
 
 def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     """
@@ -435,6 +435,20 @@ def get_loras() -> List[str]:
         loras.append(name)
     return loras
 
+def toggle_editing_markdown(visible: bool):
+    """
+    Toggles the markdown editor.
+
+    :param visible: Whether the markdown editor is currently visible.
+    :return: A tuple containing the new visibility and the updated button text.
+    """
+    visibility = not visible
+    if shared.opts.model_note_autosave:
+        btn_text = "Edit Markdown ✏️" if visible else "Finish 🏁" 
+    else:
+        btn_text = "Edit Markdown ✏️" if visible else "Save " + save_style_symbol 
+    return visibility, gr.update(visible=visibility), gr.update(value=btn_text)
+
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
     Create the UI tab for model notes.
@@ -462,7 +476,17 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                     if not shared.opts.model_note_autosave:
                         save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
                     civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
-                note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
+                    if shared.opts.model_note_markdown:
+                        markdown_toggle_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
+                if shared.opts.model_note_markdown:
+                    with FormRow(elem_id="model_notes_textbox_container"):
+                        note_box = gr.Textbox(label="Edit Markdown", lines=999, max_lines=-1, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True, visible=False)
+                        markdown = gr.Markdown(elem_id="model_notes_markdown")
+                        note_box.change(fn=lambda mk: mk, inputs=[note_box], outputs=[markdown])
+                        state_visible_toggle_button = gr.State(value=False)
+                        markdown_toggle_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, note_box, markdown_toggle_button])
+                else:
+                    note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
                 if model == "Textual Inversion":
                     notes_model_select.change(fn=lambda select: on_model_selection(ModelType.Textual_Inversion, select), inputs=[notes_model_select], outputs=[note_box])
                     if shared.opts.model_note_autosave:
@@ -508,6 +532,7 @@ def on_ui_settings() -> None:
     :return: None
     """
     shared.opts.add_option("model_note_autosave", shared.OptionInfo(default=False, label="Enable autosaving edits in note fields", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
+    shared.opts.add_option("model_note_markdown", shared.OptionInfo(default=False, label="Enable Markdown support (WIP)", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
 
 def on_script_unloaded() -> None:
     """
