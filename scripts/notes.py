@@ -19,6 +19,7 @@ from starlette.responses import JSONResponse
 import sys
 import threading
 import time
+import html2markdown
 
 # Build-in extensions are loaded after extensions so we need to add it manually
 sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
@@ -302,7 +303,15 @@ def on_save_note(model_type : ModelType, model_name : str, note : str) -> None:
     """
     set_note(model_hash=get_model_sha256(model_type, model_name), note=note, model_type=model_type)
 
-def download_description_from_civit(model_type : ModelType, model_name : str):
+def download_description_from_civit(model_type : ModelType, model_name : str, download_markdown: bool) -> str:
+    """
+    Downloads the model description from Civitai.
+
+    :param model_type: The type of the model.
+    :param model_name: The name of the model.
+    :param download_markdown: Whether to convert the description in into the markdown format
+    :return: The formatted model description.
+    """
     model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{get_model_sha256(model_type, model_name)}")
     if model_version_info.status_code == 200:
         model_version_info_json : dict = model_version_info.json()
@@ -311,15 +320,18 @@ def download_description_from_civit(model_type : ModelType, model_name : str):
         if model_info.status_code == 200:
             model_info_json : dict = model_info.json()
             formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{model_version_info_json.get("trainedWords")}'
-            soup = BeautifulSoup(formatted_model_description, 'html.parser')
-            formatted_model_description = soup.get_text("\n", strip=True)
+            if download_markdown:
+                formatted_model_description = html2markdown.convert(formatted_model_description)
+            else:
+                soup = BeautifulSoup(formatted_model_description, 'html.parser')
+                formatted_model_description = soup.get_text("\n", strip=True)
             return formatted_model_description
         elif model_info.status_code == 429:
             time.sleep(int(model_info.headers["Retry-After"]))
-            return download_description_from_civit(model_type, model_name)
+            return download_description_from_civit(model_type, model_name, download_markdown)
     elif model_version_info.status_code == 429:
         time.sleep(int(model_version_info.headers["Retry-After"]))
-        return download_description_from_civit(model_type, model_name)
+        return download_description_from_civit(model_type, model_name, download_markdown)
     return ""
 
 def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
@@ -331,13 +343,13 @@ def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> st
     :param model_note: The current model note.
     :return: The updated model note. The given model note if the model is not selected or the model description could not be retrieved.
     """
-    description = download_description_from_civit(model_type=model_type, model_name=model_name)
+    description = download_description_from_civit(model_type=model_type, model_name=model_name, download_markdown=shared.opts.model_note_markdown)
     if description != "":
         return gr.update(value=description)
     else:
         return gr.update(value=model_note, interactive=True)
 
-def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
+def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
     """
     Gets the model descriptions for all selected models from civitai
 
@@ -350,12 +362,15 @@ def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
     if model_types == []:
         return "No models selected, nothing to download."
 
+    if not shared.opts.model_note_markdown:
+        dl_markdown = False
+
     stats = {model: {"success": 0, "failed": 0, "skipped": 0} for model in model_types}
 
     if "Textual Inversion" in model_types:
         textual_inversions = get_textual_inversion_embeddings()
         for embedding in pr.tqdm(textual_inversions, desc="Downloading Textual Inversion Descriptions", total=len(textual_inversions), unit="embeddings"):
-            description = download_description_from_civit(ModelType.Textual_Inversion, embedding)
+            description = download_description_from_civit(ModelType.Textual_Inversion, embedding, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Textual_Inversion, embedding))
                 if note != "":
@@ -370,7 +385,7 @@ def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
     if "Hypernetworks" in model_types:
         hypernetworks = get_hypernetworks()
         for hypernetwork in pr.tqdm(hypernetworks, desc="Downloading Hypernetwork Descriptions", total=len(hypernetworks), unit="hypernetworks"):
-            description = download_description_from_civit(ModelType.Hypernetwork, hypernetwork)
+            description = download_description_from_civit(ModelType.Hypernetwork, hypernetwork, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Hypernetwork, hypernetwork))
                 if note != "":
@@ -385,7 +400,7 @@ def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
     if "Checkpoints" in model_types:
         checkpoints = checkpoint_tiles()
         for checkpoint in pr.tqdm(checkpoints, desc="Downloading Checkpoint Descriptions", total=len(checkpoints), unit="checkpoints"):
-            description = download_description_from_civit(ModelType.Checkpoint, checkpoint)
+            description = download_description_from_civit(ModelType.Checkpoint, checkpoint, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Checkpoint, checkpoint))
                 if note != "":
@@ -400,7 +415,7 @@ def on_get_all_civitai(model_types, overwrite, pr=gr.Progress()):
     if "LoRA" in model_types:
         loras = get_loras()
         for lora in pr.tqdm(loras, desc="Downloading LoRA Descriptions", total=len(loras), unit="LoRAs"):
-            description = download_description_from_civit(ModelType.LoRA, lora)
+            description = download_description_from_civit(ModelType.LoRA, lora, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.LoRA, lora))
                 if note != "":
@@ -519,9 +534,13 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
         with gr.Tab("Civitai"):
             model_types = gr.CheckboxGroup(supported_models, label="Models", info="Select Model types to get descriptions for")
             overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes with Civitai descriptions")
+            if shared.opts.model_note_markdown:
+                dl_markdown = gr.Checkbox(value=True, label="Convert Html to Markdown", info="Convert Html to Markdown instead of removing it", interactive=True)
+            else:
+                dl_markdown = gr.Checkbox(value=False, label="Convert Html to Markdown", info="Convert Html to Markdown instead of removing it (Needs markdown support enabled in the settings)", interactive=False)
             get_all_button = gr.Button(value="Get all descriptions from Civitai", variant="primary")
             progress_bar = gr.Label(value="", label="Result")
-            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite], outputs=[progress_bar])
+            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[progress_bar])
 
     return (main_tab, "Model Notes", "model_notes"),
 
