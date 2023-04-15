@@ -495,7 +495,7 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                         markdown_toggle_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
                 if shared.opts.model_note_markdown:
                     with FormRow(elem_id="model_notes_textbox_container"):
-                        note_box = gr.Textbox(label="Edit Markdown", lines=999, max_lines=-1, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True, visible=False)
+                        note_box = gr.Textbox(label="Edit Markdown", max_lines=-1, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True, visible=False)
                         markdown = gr.Markdown(elem_id="model_notes_markdown")
                         note_box.change(fn=lambda mk: mk, inputs=[note_box], outputs=[markdown])
                         state_visible_toggle_button = gr.State(value=False)
@@ -615,7 +615,8 @@ class NoteButtons(scripts.Script):
         
         :return: Gradio update setting the value to the note content and the lable to the models name.
         """
-        return gr.update(value=get_note(shared.opts.sd_checkpoint_hash), label=f"Note on {shared.opts.sd_model_checkpoint}")
+        note = get_note(shared.opts.sd_checkpoint_hash)
+        return gr.update(value=note, label=f"Note on {shared.opts.sd_model_checkpoint}", lines=note.count("\n") + 1)
 
     def after_component(self, component, **kwargs):
         """
@@ -648,7 +649,16 @@ class NoteButtons(scripts.Script):
         if kwargs.get("elem_id") and "_neg_prompt" in kwargs.get("elem_id"):
             with gr.Column(min_width=1920, elem_id="notes_container", visible=False) as self.note_container:  # Pushes our stuff onto a new row at 1080p screen resolution
                 with FormRow(elem_id="notes_mode_selection"):
-                    tex = gr.Textbox(label="Note", lines=5, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True)
+                    if shared.opts.model_note_markdown:
+                        tex = gr.Textbox(label="Note", max_lines=-1, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", visible=False, interactive=True)
+                        tex_markdown = gr.Markdown(label="Note", elem_id="model_notes_markdown")
+                        tex.change(fn=lambda mk: mk, inputs=[tex], outputs=[tex_markdown])
+                    else:
+                        tex = gr.Textbox(label="Note", lines=5, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True)
+                if shared.opts.model_note_markdown:
+                    state_visible_toggle_button = gr.State(value=False)
+                    markdown_toggle_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
+                    markdown_toggle_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, tex, markdown_toggle_button])
                 if shared.opts.model_note_autosave:
                     tex.change(fn=self.on_save_note, inputs=[tex], outputs=[])
                 else:
