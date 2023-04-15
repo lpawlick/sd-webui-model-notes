@@ -488,18 +488,18 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                         elif model == "Checkpoints":
                             notes_model_select = gr.Dropdown(checkpoint_tiles(), elem_id="notes_lora_model_dropdown", label="Select Checkpoint", interactive=True)
                             create_refresh_button(notes_model_select, list_models, lambda: {"choices": checkpoint_tiles()}, "refresh_notes_lora_model_dropdown")
-                    if not shared.opts.model_note_autosave:
+                    if shared.opts.model_note_markdown:
+                        save_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button") # This leads to saving even when swapping to editing mode but that should be fine
+                    elif not shared.opts.model_note_autosave:
                         save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
                     civitai_button = gr.Button(value="Get description from Civitai", variant="secondary", elem_id="notes_civitai_button")
-                    if shared.opts.model_note_markdown:
-                        markdown_toggle_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
                 if shared.opts.model_note_markdown:
                     with FormRow(elem_id="model_notes_textbox_container"):
                         note_box = gr.Textbox(label="Edit Markdown", max_lines=-1, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True, visible=False)
                         markdown = gr.Markdown(elem_id="model_notes_markdown")
                         note_box.change(fn=lambda mk: mk, inputs=[note_box], outputs=[markdown])
                         state_visible_toggle_button = gr.State(value=False)
-                        markdown_toggle_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, note_box, markdown_toggle_button])
+                        save_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, note_box, save_button])
                 else:
                     note_box = gr.Textbox(label="Note", lines=25, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=False)
                 if model == "Textual Inversion":
