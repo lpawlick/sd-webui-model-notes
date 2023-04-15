@@ -657,12 +657,13 @@ class NoteButtons(scripts.Script):
                         tex = gr.Textbox(label="Note", lines=5, elem_id="model_notes_textbox", placeholder="Make a note about the model selected above!", interactive=True)
                 if shared.opts.model_note_markdown:
                     state_visible_toggle_button = gr.State(value=False)
-                    markdown_toggle_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
-                    markdown_toggle_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, tex, markdown_toggle_button])
+                    save_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
+                    save_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, tex, save_button])
                 if shared.opts.model_note_autosave:
                     tex.change(fn=self.on_save_note, inputs=[tex], outputs=[])
                 else:
-                    save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
+                    if not shared.opts.model_note_markdown:
+                        save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
                     save_button.click(fn=self.on_save_note, inputs=[tex], outputs=[])
                 update_button = ToolButton(value=notes_symbol, elem_id="model_note_update", visible=False)
                 update_button.click(fn=self.on_get_note, inputs=[], outputs=[tex])
