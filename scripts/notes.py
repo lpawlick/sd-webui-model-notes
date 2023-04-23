@@ -249,6 +249,16 @@ def api_set_note_by_name(type : str, name : str, note : str) -> JSONResponse:
     set_note(model_hash=sha256, note=note, model_type=real_model_type)
     return JSONResponse({"success": True})
 
+def api_convert_text_to_html(text : str) -> JSONResponse:
+    """
+    Converts the given text to HTML.
+    
+    :param text: The text that should be converted.
+    :return: JSONResponse containing the "html".
+    """
+    html = convert_markdown_to_html(text)
+    return JSONResponse({"html": html})
+
 def add_api_endpoints(fastapi) -> None:
     """
     Adds all API endpoints
@@ -260,6 +270,7 @@ def add_api_endpoints(fastapi) -> None:
     fastapi.add_api_route("/model_notes/get_note_by_name", api_get_note_by_name, methods=["GET"])
     fastapi.add_api_route("/model_notes/set_note_by_hash", api_set_note_by_hash, methods=["POST"])
     fastapi.add_api_route("/model_notes/set_note_by_name", api_set_note_by_name, methods=["POST"])
+    fastapi.add_api_route("/model_notes/utils/convert_markdown_to_html", api_convert_text_to_html, methods=["GET"])
 
 def on_app_started(gradio, fastapi) -> None:
     """
