@@ -1,6 +1,8 @@
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
 import gradio as gr
+from gradio import utils
+import inspect
 from modules import script_callbacks, scripts, hashes
 from modules.sd_models import CheckpointInfo, checkpoint_tiles, checkpoint_alisases, list_models
 from modules.sd_hijack import model_hijack
@@ -31,6 +33,7 @@ notes_symbol = '\U0001F4DD' # 📝
 conn = None
 conn_lock = threading.Lock()
 shared.reload_hypernetworks() # No hypernetworks are loaded yet so we have to load the manually
+md_renderer = utils.get_markdown_parser()
 
 class ModelType(Enum):
     Checkpoint = 1
@@ -185,16 +188,28 @@ def match_model_type(string) -> ModelType:
     # Return the closest match
     return closest_match
 
-def api_get_note_by_hash(hash : str) -> JSONResponse:
+def convert_markdown_to_html(markdown: str) -> str:
+    """
+    Converts markdown to HTML.
+
+    :param markdown: The markdown to convert.
+    :return: The converted HTML.
+    """
+    markdown = inspect.cleandoc(markdown)
+    markdown = md_renderer.render(markdown)
+    return markdown
+
+def api_get_note_by_hash(hash : str, markdown : bool = False) -> JSONResponse:
     """
     Get the note from the given model.
     
     :param hash: The sha256 hash of the model.
     :return: JSONResponse containing the "note".
     """
-    return JSONResponse({"note": get_note(hash)})
+    note = get_note(hash)
+    return JSONResponse({"note": convert_markdown_to_html(note) if markdown else note})
 
-def api_get_note_by_name(type : str, name : str) -> JSONResponse:
+def api_get_note_by_name(type : str, name : str, markdown : bool = False) -> JSONResponse:
     """
     Get the note from the given model.
     
@@ -204,7 +219,8 @@ def api_get_note_by_name(type : str, name : str) -> JSONResponse:
     """
     real_model_type = match_model_type(type)
     sha256 = get_model_sha256(real_model_type, name)
-    return JSONResponse({"note": get_note(sha256)})
+    note = get_note(sha256)
+    return JSONResponse({"note": convert_markdown_to_html(note) if markdown else note})
 
 def api_set_note_by_hash(type : str, hash : str, note : str) -> JSONResponse:
     """
