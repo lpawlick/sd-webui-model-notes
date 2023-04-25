@@ -578,7 +578,7 @@ def on_ui_settings() -> None:
     :return: None
     """
     shared.opts.add_option("model_note_autosave", shared.OptionInfo(default=False, label="Enable autosaving edits in note fields", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
-    shared.opts.add_option("model_note_markdown", shared.OptionInfo(default=False, label="Enable Markdown support (WIP)", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
+    shared.opts.add_option("model_note_markdown", shared.OptionInfo(default=False, label="Enable Markdown support", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
 
 def on_script_unloaded() -> None:
     """
@@ -685,12 +685,15 @@ class NoteButtons(scripts.Script):
                 if shared.opts.model_note_markdown:
                     state_visible_toggle_button = gr.State(value=False)
                     save_button = gr.Button(value="Edit Markdown ✏️", variant="secondary", elem_id="notes_markdown_toggle_button")
+                    gr.Markdown(value="Nothing to see here", visible=False, elem_id="model_notes_markdown_template")
                     save_button.click(fn=toggle_editing_markdown, inputs=[state_visible_toggle_button], outputs=[state_visible_toggle_button, tex, save_button])
                 if shared.opts.model_note_autosave:
                     tex.change(fn=self.on_save_note, inputs=[tex], outputs=[])
                 else:
                     if not shared.opts.model_note_markdown:
                         save_button = gr.Button(value="Save changes " + save_style_symbol, variant="primary", elem_id="save_model_note")
+                    else:
+                        save_button = gr.Button(value="", variant="primary", elem_id="save_model_note", visible=False)
                     save_button.click(fn=self.on_save_note, inputs=[tex], outputs=[])
                 update_button = ToolButton(value=notes_symbol, elem_id="model_note_update", visible=False)
                 update_button.click(fn=self.on_get_note, inputs=[], outputs=[tex])

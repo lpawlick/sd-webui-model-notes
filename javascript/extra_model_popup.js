@@ -1,9 +1,8 @@
 let model_notes_isPopupOpen = false;
 
 // Save note using API
-async function model_notes_saveNote(model_type, name) 
+async function model_notes_saveNote(model_type, name, note) 
 {
-  const note = document.getElementById("model_note_extra_model_textbox").value;
   const url = `/model_notes/set_note_by_name?type=${encodeURIComponent(model_type)}&name=${encodeURIComponent(name)}&note=${encodeURIComponent(note)}`;
 
   try {
@@ -16,9 +15,17 @@ async function model_notes_saveNote(model_type, name)
 
 // Get note using API
 async function model_notes_getNote(name, model_type) {
-  const response = await fetch(`/model_notes/get_note_by_name?name=${name}&type=${model_type}`);
+  const response = await fetch(`/model_notes/get_note_by_name?name=${encodeURIComponent(name)}&type=${encodeURIComponent(model_type)}`);
   const data = await response.json();
   return data.note;
+}
+
+// Convert markdown to HTML
+async function model_notes_convert_markdown_to_html(markdown) 
+{
+  const response = await fetch(`/model_notes/utils/convert_markdown_to_html?text=${encodeURIComponent(markdown)}`);
+  const data = await response.json();
+  return data.html;
 }
 
 // Open popup animation
@@ -64,7 +71,7 @@ async function note_extra_models_create_popup(name, model_type) {
     try {
       const note = await model_notes_getNote(name, model_type);
       document.body.style.cursor = 'auto'; // Change cursor back to normal
-      model_notes_create_actual_popup(name, model_type, note);
+      model_notes_create_actual_popup(name, model_type, note, true);
       icons.forEach(icon => {
         icon.style.cursor = 'pointer';
         });
@@ -80,7 +87,7 @@ async function note_extra_models_create_popup(name, model_type) {
 }
 
 
-function model_notes_create_actual_popup(name, model_type, note) 
+function model_notes_create_actual_popup(name, model_type, note, markdown) 
 {
   // Create required elements
   const popup = document.createElement("div");
@@ -89,6 +96,7 @@ function model_notes_create_actual_popup(name, model_type, note)
   const popupTitle = document.createElement("h2");
   const closeButton = document.createElement("div");
   const textBox = document.createElement("textarea");
+  const textContainer = document.createElement("div");
   const container = document.createElement("div");
 
   // Get styles
@@ -129,20 +137,64 @@ function model_notes_create_actual_popup(name, model_type, note)
   textBox.id = "model_note_extra_model_textbox";
   textBox.className = "scroll-hide";
   textBox.setAttribute("data-testid", "textbox");
-  textBox.style.cssText = `overflow-y: scroll; height: ${Math.min(0.75 * window.innerHeight, Math.max(0.25 * window.innerHeight, 84))}px; width: 100%; background-color: ${backgroundColor}; color: ${color}; border-color: ${borderColor}; border-radius: ${borderRadius}; border-style: solid; overflow: visible;`;
+  textBox.style.cssText = `overflow-y: scroll; min-height: ${Math.min(0.75 * window.innerHeight, Math.max(0.25 * window.innerHeight, 84))}px; width: 100%; background-color: ${backgroundColor}; color: ${color}; border-color: ${borderColor}; border-radius: ${borderRadius}; border-style: solid; overflow: visible;`;
   textBox.textContent = note;
+  textBox.style.flex = "1";
 
   // Set up container
   container.style.cssText = "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%;";
 
   const saveModelNoteElement = document.getElementById("save_model_note");
-  if (saveModelNoteElement) 
+  const markdownTemplate = document.getElementById("model_notes_markdown_template")
+  if (markdownTemplate)
+  {
+    // Hide Textbox by default
+    textBox.style.visibility = "hidden";
+
+    // Create Markdown button
+    const markdownButton = document.getElementById("txt2img_generate").cloneNode(true);
+
+    // Set up Markdown button
+    markdownButton.id = "model_notes_markdown_btn";
+    markdownButton.textContent = "Edit ✏️";
+    markdownButton.style.cssText = `${styles.cssText}; width: 100%; height: ${document.getElementById("txt2img_generate").clientHeight}px; cursor: pointer; margin-top: 10px;`;
+
+    // Add event listeners
+    markdownButton.addEventListener("mouseenter", () => markdownButton.style.cursor = "pointer");
+    markdownButton.addEventListener("mouseleave", () => markdownButton.style.cursor = "auto");
+    markdownButton.addEventListener("click", async () => 
+    {
+      const text = markdownButton.textContent.trim();
+      const markdownContainer = document.getElementById("model_notes_markdown_container");
+
+      if (text === "Edit ✏️") 
+      {
+        markdownButton.textContent = saveModelNoteElement ? "Save 💾" : "Finish 🏁";
+        markdownContainer.style.maxWidth = "50%";
+        textBox.style.visibility = "visible";
+      } 
+      else 
+      {
+        if (saveModelNoteElement)
+        {
+          await model_notes_saveNote(model_type, name, textBox.value);
+        }
+        markdownContainer.style.maxWidth = "100%";
+        textBox.style.visibility = "hidden";
+        markdownButton.textContent = "Edit ✏️";
+      }
+    });
+
+    // Append elements
+    container.appendChild(markdownButton);
+  }
+  else if (saveModelNoteElement) 
   {
     // Create save button
     const saveButton = document.getElementById("txt2img_generate").cloneNode(true);
 
     // Set up save button
-    saveButton.id = "saveButton";
+    saveButton.id = "model_notes_saveButton";
     saveButton.textContent = "Save";
     saveButton.style.cssText = `${styles.cssText}; width: 100%; height: ${document.getElementById("txt2img_generate").clientHeight}px; cursor: pointer; margin-top: 10px;`;
 
@@ -150,22 +202,52 @@ function model_notes_create_actual_popup(name, model_type, note)
     saveButton.addEventListener("mouseenter", () => saveButton.style.cursor = "pointer");
     saveButton.addEventListener("mouseleave", () => saveButton.style.cursor = "auto");
     saveButton.addEventListener("click", async () => {
-      await model_notes_saveNote(model_type, name);
+      await model_notes_saveNote(model_type, name, textBox.value);
     });
 
     // Append elements
     container.appendChild(saveButton);
   }
-  else
+  if (!saveModelNoteElement)
   {
     textBox.addEventListener("input", async () => {
-      await model_notes_saveNote(model_type, name);
+      await model_notes_saveNote(model_type, name, textBox.value);
     });
 }
 
+  textContainer.appendChild(textBox);
+  if (markdownTemplate)
+  {
+    const markdownContainer = document.createElement("div");
+    markdownContainer.className = document.querySelector("#model_notes_markdown_template").className.replace("hidden", "").trim();
+    markdownContainer.id = "model_notes_markdown_container";
+    markdownContainer.style.color = color;
+    markdownContainer.style.marginLeft = "1vw";
+    markdownContainer.style.marginRight = "1vw";
+    
+    textContainer.style.display = "flex";
+    textContainer.style.flexDirection = "row";
+    textContainer.style.justifyContent = "center";
+    textContainer.appendChild(markdownContainer);
+    textBox.addEventListener("input", async () => 
+    {
+      const new_html = await model_notes_convert_markdown_to_html(textBox.value);
+      markdownContainer.innerHTML = new_html;
+
+      // Apply CSS style to images within markdownContainer
+      const images = markdownContainer.getElementsByTagName("img");
+      for (let img of images) 
+      {
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+      }
+    });
+    textBox.dispatchEvent(new Event('input')); // Sets the markdown text
+  }
+
   popupContent.appendChild(popupTitle);
   popupContent.appendChild(closeButton);
-  popupContent.appendChild(textBox);
+  popupContent.appendChild(textContainer);
   popupContent.appendChild(container);
   popupOverlay.appendChild(popupContent);
   popup.appendChild(popupOverlay);
