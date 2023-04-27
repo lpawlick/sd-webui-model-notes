@@ -7,7 +7,7 @@ from modules import script_callbacks, scripts, hashes
 from modules.sd_models import CheckpointInfo, checkpoint_tiles, checkpoint_alisases, list_models
 from modules.sd_hijack import model_hijack
 from modules.ui import create_refresh_button, save_style_symbol
-from modules import shared
+from modules import shared, sd_models
 from modules.ui_components import FormRow, ToolButton
 import sqlite3
 from sqlite3 import Error
@@ -22,6 +22,8 @@ import sys
 import threading
 import time
 import html2markdown
+import csv
+import os
 
 # Build-in extensions are loaded after extensions so we need to add it manually
 sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
@@ -40,6 +42,37 @@ class ModelType(Enum):
     Hypernetwork = 2
     LoRA = 3
     Textual_Inversion = 4
+
+class ResultType(Enum):
+    success = 1
+    not_found = 2
+    error = 3
+class FileTypes(Enum):
+    Plain_text = ("txt", "Plaint text (*.txt)")
+    CSV = ("csv", "Comma-Separated (*.csv)")
+    Markdown = ("md", "Markdown (*.md)")
+    HTML = ("html", "HTML (*.html)")
+    
+    def __init__(self, extension, description):
+        self.extension = extension
+        self.description = description
+        
+    def __str__(self):
+        return self.description
+    
+    @classmethod
+    def from_extension(cls, extension_str):
+        for filetype in cls:
+            if filetype.extension == extension_str:
+                return filetype
+        raise ValueError(f"Unknown extension: {extension_str}")
+        
+    @classmethod
+    def from_description(cls, description_str):
+        for filetype in cls:
+            if str(filetype) == description_str:
+                return filetype
+        raise ValueError(f"Unknown description: {description_str}")
 
 def create_connection(db_file: str) -> None:
     """ 
@@ -166,12 +199,12 @@ def levenshtein_distance(s1: str, s2: str) -> int:
         distances = distances_
     return distances[-1]
 
-def match_model_type(string) -> ModelType:
+def match_enum(string, enum_type):
     """
-    Matches a string to a ModelType by finding the closest match based on Levenshtein distance.
+    Matches a string to the given Enum by finding the closest match based on Levenshtein distance.
 
     :param string: The string to match.
-    :return: A ModelType representing the closest match to the input string.
+    :return: A Enum value representing the closest match to the input string.
     """
     # Convert input string to lowercase and remove spaces
     string = string.lower().replace(" ", "_")
@@ -179,7 +212,7 @@ def match_model_type(string) -> ModelType:
     # Find the closest match to the input string
     closest_match = None
     closest_distance = float("inf")
-    for member in ModelType:
+    for member in enum_type:
         distance = levenshtein_distance(string, member.name.lower())
         if distance < closest_distance:
             closest_distance = distance
@@ -217,7 +250,7 @@ def api_get_note_by_name(type : str, name : str, markdown : bool = False) -> JSO
     :param name: The name of the model.
     :return: JSONResponse containing the "note".
     """
-    real_model_type = match_model_type(type)
+    real_model_type = match_enum(type, ModelType)
     sha256 = get_model_sha256(real_model_type, name)
     note = get_note(sha256)
     return JSONResponse({"note": convert_markdown_to_html(note) if markdown else note})
@@ -231,7 +264,7 @@ def api_set_note_by_hash(type : str, hash : str, note : str) -> JSONResponse:
     :param note: The note that should be saved.
     :return: JSONResponse containing the "note".
     """
-    real_model_type = match_model_type(type)
+    real_model_type = match_enum(type, ModelType)
     set_note(model_hash=hash, note=note, model_type=real_model_type)
     return JSONResponse({"success": True})
 
@@ -244,7 +277,7 @@ def api_set_note_by_name(type : str, name : str, note : str) -> JSONResponse:
     :param note: The note that should be saved.
     :return: JSONResponse containing the "note".
     """
-    real_model_type = match_model_type(type)
+    real_model_type = match_enum(type, ModelType)
     sha256 = get_model_sha256(real_model_type, name)
     set_note(model_hash=sha256, note=note, model_type=real_model_type)
     return JSONResponse({"success": True})
@@ -491,6 +524,74 @@ def toggle_editing_markdown(visible: bool):
         btn_text = "Edit Markdown ✏️" if visible else "Save " + save_style_symbol 
     return visibility, gr.update(visible=visibility), gr.update(value=btn_text)
 
+def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: Path) -> ResultType:
+    if content == "":
+        return ResultType.not_found
+    if file_type == FileTypes.HTML:
+        content = convert_markdown_to_html(content)
+    filepath = folder / f"{title}.{file_type.value[0]}"
+    try:
+        with open(filepath, "w") as file:
+            file.write(content)
+    except Exception as e:
+        print(f"Failed to save note: {e}")
+        return ResultType.error
+    return ResultType.success
+
+def export_all_notes(file_type_picker, export_folder_checkbox, export_directory, export_name, pr=gr.Progress()):
+    if file_type_picker == "" or (not export_folder_checkbox and export_directory == "") or export_name == "":
+        return "Please fill out all fields."
+    print(file_type_picker, export_folder_checkbox, export_directory, export_name)
+
+    stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.error: 0}
+    def collect_stats(result : ResultType):
+        stats[result] += 1
+    
+    file_type = FileTypes.from_description(file_type_picker)
+    csv_data = []
+    for embedding in pr.tqdm(model_hijack.embedding_db.word_embeddings.values(), desc="Saving Textual Inversion Notes", total=len(model_hijack.embedding_db.word_embeddings.values()), unit="embeddings"):
+        sha256 = get_model_sha256(ModelType.Textual_Inversion, embedding.name)
+        note = get_note(sha256)
+        if not file_type == FileTypes.CSV:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else embedding.name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(embedding.filename).parent if export_folder_checkbox else export_directory))
+        else:
+            csv_data.append({"title" : sha256 if export_name == "Sha256" else embedding.name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : embedding.filename})
+    for name, path in pr.tqdm(shared.hypernetworks.items(), desc="Saving Hypernetwork Notes", total=len(shared.hypernetworks.items()), unit="hypernetworks"):
+        sha256 = get_model_sha256(ModelType.Hypernetwork, name)
+        note = get_note(sha256)
+        if not file_type == FileTypes.CSV:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(path).parent if export_folder_checkbox else export_directory))
+        else:
+            csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : path})
+    for name, checkpoint  in pr.tqdm(sd_models.checkpoints_list.items(), desc="Saving Checkpoint Notes", total=len(sd_models.checkpoints_list.items()), unit="checkpoints"):
+        sha256 = get_model_sha256(ModelType.Checkpoint, checkpoint.name_for_extra)
+        note = get_note(sha256)
+        if not file_type == FileTypes.CSV:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else checkpoint.name_for_extra, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(checkpoint.filename).parent if export_folder_checkbox else export_directory))
+        else:
+            csv_data.append({"title" : sha256 if export_name == "Sha256" else checkpoint.name_for_extra, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : checkpoint.filename})
+    for name, lora_on_disk in pr.tqdm(lora.available_loras.items(), desc="Saving LoRA Notes", total=len(lora.available_loras.items()), unit="LoRAs"):
+        sha256 = get_model_sha256(ModelType.LoRA, name)
+        note = get_note(sha256)
+        if not file_type == FileTypes.CSV:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(lora_on_disk.filename).parent if export_folder_checkbox else export_directory))
+        else:
+            csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : lora_on_disk.filename})
+    if file_type == FileTypes.CSV:
+        with open(Path(export_directory) / 'notes.csv', 'w', newline='') as csvfile:
+            # Create a new csv writer object
+            writer = csv.writer(csvfile)
+
+            if csv_data != []:
+                # Write the headers as the first row
+                headers = csv_data[0].keys()
+                writer.writerow(headers)
+            # Write each row of data
+            for row in csv_data:
+                writer.writerow(row.values())
+
+    return f"Saved Notes: {stats[ResultType.success]}\nFailed to Save Note: {stats[ResultType.error]}\nNo Note: {stats[ResultType.not_found]}"
+
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
     Create the UI tab for model notes.
@@ -566,8 +667,19 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
             else:
                 dl_markdown = gr.Checkbox(value=False, label="Convert Html to Markdown", info="Convert Html to Markdown instead of removing it (Needs markdown support enabled in the settings)", interactive=False)
             get_all_button = gr.Button(value="Get all descriptions from Civitai", variant="primary")
-            progress_bar = gr.Label(value="", label="Result")
-            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[progress_bar])
+            civit_stats = gr.Label(value="", label="Result")
+            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
+
+        with gr.Tab("Export (WIP)"):
+            file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", interactive=True, multiselect=False, max_choice=1)
+            with gr.Box():
+                export_folder_checkbox = gr.Checkbox(label="Export into the models folder", value=True, elem_id="model_notes_export_folder_checkbox", interactive=True)
+                export_directory = gr.Textbox(label="Export Directory Path", file_count="directory", elem_id="model_notes_export_folder_picker", visible=False, interactive=True)
+                export_folder_checkbox.change(fn=lambda checkbox: gr.update(visible=not checkbox), inputs=[export_folder_checkbox], outputs=[export_directory])
+            export_name = gr.Dropdown(["Model Name", "Sha256"], label="Export Filename", value="Model Name", elem_id="model_notes_export_filename_formats", interactive=True, multiselect=False,  max_choice=1)
+            export_button = gr.Button(value="Export", variant="primary", elem_id="model_notes_export_button")
+            export_stats = gr.Label(value="", label="Result")
+            export_button.click(fn=export_all_notes, inputs=[file_type_picker, export_folder_checkbox, export_directory, export_name], outputs=[export_stats])
 
     return (main_tab, "Model Notes", "model_notes"),
 
