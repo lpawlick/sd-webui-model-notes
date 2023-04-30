@@ -524,12 +524,14 @@ def toggle_editing_markdown(visible: bool):
         btn_text = "Edit Markdown ✏️" if visible else "Save " + save_style_symbol 
     return visibility, gr.update(visible=visibility), gr.update(value=btn_text)
 
-def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: Path) -> ResultType:
+def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: Path, overwrite: bool) -> ResultType:
     if content == "":
         return ResultType.not_found
     if file_type == FileTypes.HTML:
         content = convert_markdown_to_html(content)
     filepath = folder / f"{title}.{file_type.value[0]}"
+    if not overwrite and filepath.exists():
+        return ResultType.error
     try:
         with open(filepath, "w") as file:
             file.write(content)
@@ -538,7 +540,7 @@ def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: 
         return ResultType.error
     return ResultType.success
 
-def export_all_notes(file_type_picker, export_folder_checkbox, export_directory, export_name, pr=gr.Progress()):
+def export_all_notes(file_type_picker, export_folder_checkbox, export_directory, export_name, export_folder_overwrite, pr=gr.Progress()):
     if file_type_picker == "" or (not export_folder_checkbox and export_directory == "") or export_name == "":
         return "Please fill out all fields."
     stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.error: 0}
@@ -550,7 +552,7 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
         sha256 = get_model_sha256(ModelType.Textual_Inversion, embedding.name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else embedding.name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(embedding.filename).parent if export_folder_checkbox else Path(export_directory)))
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else embedding.name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(embedding.filename).parent if export_folder_checkbox else Path(export_directory), overwrite=export_folder_overwrite))
         elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else embedding.name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : embedding.filename})
             collect_stats(ResultType.success)
@@ -560,7 +562,7 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
         sha256 = get_model_sha256(ModelType.Hypernetwork, name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(path).parent if export_folder_checkbox else Path(export_directory)))
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(path).parent if export_folder_checkbox else Path(export_directory), overwrite=export_folder_overwrite))
         elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : path})
             collect_stats(ResultType.success)
@@ -570,7 +572,7 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
         sha256 = get_model_sha256(ModelType.Checkpoint, checkpoint.name_for_extra)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else checkpoint.name_for_extra, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(checkpoint.filename).parent if export_folder_checkbox else Path(export_directory)))
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else checkpoint.name_for_extra, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(checkpoint.filename).parent if export_folder_checkbox else Path(export_directory), overwrite=export_folder_overwrite))
         elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else checkpoint.name_for_extra, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : checkpoint.filename})
             collect_stats(ResultType.success)
@@ -580,27 +582,30 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
         sha256 = get_model_sha256(ModelType.LoRA, name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(lora_on_disk.filename).parent if export_folder_checkbox else export_directory))
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(lora_on_disk.filename).parent if export_folder_checkbox else Path(export_directory), overwrite=export_folder_overwrite))
         elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : lora_on_disk.filename})
             collect_stats(ResultType.success)
         else:
             collect_stats(ResultType.not_found)
     if file_type == FileTypes.CSV:
-        with open(Path(export_directory) / 'notes.csv', 'w', newline='') as csvfile:
-            # Create a new csv writer object
-            writer = csv.writer(csvfile)
-
-            if csv_data != []:
-                # Write the headers as the first row
-                headers = csv_data[0].keys()
-                writer.writerow(headers)
-            # Write each row of data
-            for row in csv_data:
-                writer.writerow(row.values())
-        save_location = f"All notes where saved to {Path(Path(export_directory), 'notes.csv').absolute()}"
+        file_path = Path(export_directory) / 'notes.csv'
+        if file_path.exists() and not export_folder_overwrite:
+            save_location = f"Notes spreadsheet already exists at {file_path.absolute()} and overwrite is disabled"
+        else:
+            with open(file_path, 'w', newline='') as csvfile:
+                # Create a new csv writer object
+                writer = csv.writer(csvfile)
+                if csv_data != []:
+                    # Write the headers as the first row
+                    headers = csv_data[0].keys()
+                    writer.writerow(headers)
+                # Write each row of data
+                for row in csv_data:
+                    writer.writerow(row.values())
+            save_location = f"All notes were saved to {file_path.absolute()}"
     else:
-        save_location = f"All notes where saved in the same folder as the model" if export_folder_checkbox else f"All models where saved to {export_directory}"
+        save_location = f"All notes where saved in the same folder as the model" if export_folder_checkbox else f"All models where saved to {Path(export_directory).absolute()}"
     return f"{save_location} || Saved Notes: {stats[ResultType.success]} | No Note: {stats[ResultType.not_found]} | Failed to Save Note: {stats[ResultType.error]}"
 
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
@@ -681,16 +686,17 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
             civit_stats = gr.Label(value="", label="Result")
             get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
 
-        with gr.Tab("Export (WIP)"):
+        with gr.Tab("Export"):
             file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", interactive=True, multiselect=False, max_choice=1)
             with gr.Box():
                 export_folder_checkbox = gr.Checkbox(label="Export into the models folder", value=True, elem_id="model_notes_export_folder_checkbox", interactive=True)
                 export_directory = gr.Textbox(label="Export Directory Path", file_count="directory", elem_id="model_notes_export_folder_picker", visible=False, interactive=True)
                 export_folder_checkbox.change(fn=lambda checkbox: gr.update(visible=not checkbox), inputs=[export_folder_checkbox], outputs=[export_directory])
             export_name = gr.Dropdown(["Model Name", "Sha256"], label="Export Filename", value="Model Name", elem_id="model_notes_export_filename_formats", interactive=True, multiselect=False,  max_choice=1)
+            export_folder_overwrite = gr.Checkbox(label="Overwrite existing notes", value=True, elem_id="model_notes_export_overwrite", interactive=True)
             export_button = gr.Button(value="Export", variant="primary", elem_id="model_notes_export_button")
             export_stats = gr.Label(value="", label="Result")
-            export_button.click(fn=export_all_notes, inputs=[file_type_picker, export_folder_checkbox, export_directory, export_name], outputs=[export_stats])
+            export_button.click(fn=export_all_notes, inputs=[file_type_picker, export_folder_checkbox, export_directory, export_name, export_folder_overwrite], outputs=[export_stats])
 
     return (main_tab, "Model Notes", "model_notes"),
 
