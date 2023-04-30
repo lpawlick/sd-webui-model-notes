@@ -541,42 +541,51 @@ def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: 
 def export_all_notes(file_type_picker, export_folder_checkbox, export_directory, export_name, pr=gr.Progress()):
     if file_type_picker == "" or (not export_folder_checkbox and export_directory == "") or export_name == "":
         return "Please fill out all fields."
-    print(file_type_picker, export_folder_checkbox, export_directory, export_name)
-
     stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.error: 0}
     def collect_stats(result : ResultType):
         stats[result] += 1
-    
     file_type = FileTypes.from_description(file_type_picker)
     csv_data = []
     for embedding in pr.tqdm(model_hijack.embedding_db.word_embeddings.values(), desc="Saving Textual Inversion Notes", total=len(model_hijack.embedding_db.word_embeddings.values()), unit="embeddings"):
         sha256 = get_model_sha256(ModelType.Textual_Inversion, embedding.name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else embedding.name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(embedding.filename).parent if export_folder_checkbox else export_directory))
-        else:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else embedding.name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(embedding.filename).parent if export_folder_checkbox else Path(export_directory)))
+        elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else embedding.name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : embedding.filename})
+            collect_stats(ResultType.success)
+        else:
+            collect_stats(ResultType.not_found)
     for name, path in pr.tqdm(shared.hypernetworks.items(), desc="Saving Hypernetwork Notes", total=len(shared.hypernetworks.items()), unit="hypernetworks"):
         sha256 = get_model_sha256(ModelType.Hypernetwork, name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(path).parent if export_folder_checkbox else export_directory))
-        else:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(path).parent if export_folder_checkbox else Path(export_directory)))
+        elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : path})
+            collect_stats(ResultType.success)
+        else:
+            collect_stats(ResultType.not_found)
     for name, checkpoint  in pr.tqdm(sd_models.checkpoints_list.items(), desc="Saving Checkpoint Notes", total=len(sd_models.checkpoints_list.items()), unit="checkpoints"):
         sha256 = get_model_sha256(ModelType.Checkpoint, checkpoint.name_for_extra)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
-            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else checkpoint.name_for_extra, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(checkpoint.filename).parent if export_folder_checkbox else export_directory))
-        else:
+            collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else checkpoint.name_for_extra, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(checkpoint.filename).parent if export_folder_checkbox else Path(export_directory)))
+        elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else checkpoint.name_for_extra, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : checkpoint.filename})
+            collect_stats(ResultType.success)
+        else:
+            collect_stats(ResultType.not_found)
     for name, lora_on_disk in pr.tqdm(lora.available_loras.items(), desc="Saving LoRA Notes", total=len(lora.available_loras.items()), unit="LoRAs"):
         sha256 = get_model_sha256(ModelType.LoRA, name)
         note = get_note(sha256)
         if not file_type == FileTypes.CSV:
             collect_stats(export_note_to_disk(title=sha256 if export_name == "Sha256" else name, content=convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, file_type=file_type, folder=Path(lora_on_disk.filename).parent if export_folder_checkbox else export_directory))
-        else:
+        elif note != "":
             csv_data.append({"title" : sha256 if export_name == "Sha256" else name, "content" : convert_markdown_to_html(note) if file_type == FileTypes.HTML else note, "file_path" : lora_on_disk.filename})
+            collect_stats(ResultType.success)
+        else:
+            collect_stats(ResultType.not_found)
     if file_type == FileTypes.CSV:
         with open(Path(export_directory) / 'notes.csv', 'w', newline='') as csvfile:
             # Create a new csv writer object
@@ -589,8 +598,10 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
             # Write each row of data
             for row in csv_data:
                 writer.writerow(row.values())
-
-    return f"Saved Notes: {stats[ResultType.success]}\nFailed to Save Note: {stats[ResultType.error]}\nNo Note: {stats[ResultType.not_found]}"
+        save_location = f"All notes where saved to {Path(Path(export_directory), 'notes.csv').absolute()}"
+    else:
+        save_location = f"All notes where saved in the same folder as the model" if export_folder_checkbox else f"All models where saved to {export_directory}"
+    return f"{save_location} || Saved Notes: {stats[ResultType.success]} | No Note: {stats[ResultType.not_found]} | Failed to Save Note: {stats[ResultType.error]}"
 
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
