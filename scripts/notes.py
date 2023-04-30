@@ -687,13 +687,13 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
             get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
 
         with gr.Tab("Export"):
-            file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", interactive=True, multiselect=False, max_choice=1)
+            file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", info="Select the format to convert the note to", interactive=True, multiselect=False, max_choice=1)
             with gr.Box():
-                export_folder_checkbox = gr.Checkbox(label="Export into the models folder", value=True, elem_id="model_notes_export_folder_checkbox", interactive=True)
-                export_directory = gr.Textbox(label="Export Directory Path", file_count="directory", elem_id="model_notes_export_folder_picker", visible=False, interactive=True)
+                export_folder_checkbox = gr.Checkbox(label="Export into the models folder", info="Export notes in the same folder as the models (ignored for csv)", value=True, elem_id="model_notes_export_folder_checkbox", interactive=True)
+                export_directory = gr.Textbox(label="Export Directory Path", info="The folder where the notes should be saved instead", file_count="directory", elem_id="model_notes_export_folder_picker", visible=False, interactive=True)
                 export_folder_checkbox.change(fn=lambda checkbox: gr.update(visible=not checkbox), inputs=[export_folder_checkbox], outputs=[export_directory])
-            export_name = gr.Dropdown(["Model Name", "Sha256"], label="Export Filename", value="Model Name", elem_id="model_notes_export_filename_formats", interactive=True, multiselect=False,  max_choice=1)
-            export_folder_overwrite = gr.Checkbox(label="Overwrite existing notes", value=True, elem_id="model_notes_export_overwrite", interactive=True)
+            export_name = gr.Dropdown(["Model Name", "Sha256"], label="Export Filename", info="Select how the note files should be named", value="Model Name", elem_id="model_notes_export_filename_formats", interactive=True, multiselect=False,  max_choice=1)
+            export_folder_overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes files or skip them instead", value=True, elem_id="model_notes_export_overwrite", interactive=True)
             export_button = gr.Button(value="Export", variant="primary", elem_id="model_notes_export_button")
             export_stats = gr.Label(value="", label="Result")
             export_button.click(fn=export_all_notes, inputs=[file_type_picker, export_folder_checkbox, export_directory, export_name, export_folder_overwrite], outputs=[export_stats])
