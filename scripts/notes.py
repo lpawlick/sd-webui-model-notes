@@ -624,7 +624,7 @@ def import_note_from_disk(title: str, file_types: List[FileTypes], folder: Path)
                 return ResultType.error, str(e)
     return ResultType.not_found, ""
 
-def import_all_notes(model_types, overwrite, pr=gr.Progress()):
+def import_all_notes(model_types, overwrite, import_name, pr=gr.Progress()):
     if model_types == []:
         return "No note types selected, nothing to import."
     stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.skipped : 0, ResultType.error: 0}
@@ -638,7 +638,7 @@ def import_all_notes(model_types, overwrite, pr=gr.Progress()):
         if not overwrite and get_note(sha256) != "":
             collect_stats(ResultType.skipped)
             continue
-        result, note = import_note_from_disk(title=embedding.name, file_types=file_types, folder=Path(embedding.filename).parent)
+        result, note = import_note_from_disk(title=sha256 if import_name == "Sha256" else embedding.name, file_types=file_types, folder=Path(embedding.filename).parent)
         if note != "":
             set_note(model_hash=sha256, note=note, model_type=ModelType.Textual_Inversion)
         collect_stats(result)
@@ -647,7 +647,7 @@ def import_all_notes(model_types, overwrite, pr=gr.Progress()):
         if not overwrite and get_note(sha256) != "":
             collect_stats(ResultType.skipped)
             continue
-        result, note = import_note_from_disk(title=name, file_types=file_types, folder=Path(path).parent)
+        result, note = import_note_from_disk(title=sha256 if import_name == "Sha256" else name, file_types=file_types, folder=Path(path).parent)
         if note != "":
             set_note(model_hash=sha256, note=note, model_type=ModelType.Hypernetwork)
         collect_stats(result)
@@ -656,7 +656,7 @@ def import_all_notes(model_types, overwrite, pr=gr.Progress()):
         if not overwrite and get_note(sha256) != "":
             collect_stats(ResultType.skipped)
             continue
-        result, note = import_note_from_disk(title=checkpoint.name_for_extra, file_types=file_types, folder=Path(checkpoint.filename).parent)
+        result, note = import_note_from_disk(title=sha256 if import_name == "Sha256" else checkpoint.name_for_extra, file_types=file_types, folder=Path(checkpoint.filename).parent)
         if note != "":
             set_note(model_hash=sha256, note=note, model_type=ModelType.Checkpoint)
         collect_stats(result)
@@ -665,7 +665,7 @@ def import_all_notes(model_types, overwrite, pr=gr.Progress()):
         if not overwrite and get_note(sha256) != "":
             collect_stats(ResultType.skipped)
             continue
-        result, note = import_note_from_disk(title=name, file_types=file_types, folder=Path(lora_on_disk.filename).parent)
+        result, note = import_note_from_disk(title=sha256 if import_name == "Sha256" else name, file_types=file_types, folder=Path(lora_on_disk.filename).parent)
         if note != "":
             set_note(model_hash=sha256, note=note, model_type=ModelType.LoRA)
         collect_stats(result)
@@ -751,10 +751,11 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
 
         with gr.Tab("Import (WIP)"):
             import_model_types = gr.CheckboxGroup([str(filetype) for filetype in FileTypes if not filetype == FileTypes.CSV], label="Import Formats", info="Select note types to import.\nIf a model as multiple note formats then only the most right selected format will be imported")
+            import_name = gr.Dropdown(["Model Name", "Sha256"], label="Import Filename", info="Select how the note files are named", value="Model Name", elem_id="model_notes_import_filename_formats", interactive=True, multiselect=False,  max_choice=1)
             import_overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes instead of skipping them", value=True)
             import_button = gr.Button(value="Import", variant="primary", elem_id="model_notes_import_button")
             import_stats = gr.Label(value="", label="Result")
-            import_button.click(fn=import_all_notes, inputs=[import_model_types, import_overwrite], outputs=[import_stats])
+            import_button.click(fn=import_all_notes, inputs=[import_model_types, import_overwrite, import_name], outputs=[import_stats])
 
         with gr.Tab("Export"):
             file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", info="Select the format to convert the note to", interactive=True, multiselect=False, max_choice=1)
