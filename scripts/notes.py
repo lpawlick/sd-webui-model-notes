@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from bs4 import BeautifulSoup
 import gradio as gr
 from gradio import utils
@@ -47,15 +47,17 @@ class ResultType(Enum):
     success = 1
     not_found = 2
     error = 3
+    skipped = 4
 class FileTypes(Enum):
-    Plain_text = ("txt", "Plaint text (*.txt)")
-    CSV = ("csv", "Comma-Separated (*.csv)")
-    Markdown = ("md", "Markdown (*.md)")
-    HTML = ("html", "HTML (*.html)")
+    Plain_text = ("txt", "Plaint text (*.txt)", 0)
+    CSV = ("csv", "Comma-Separated (*.csv)", 1)
+    Markdown = ("md", "Markdown (*.md)", 2)
+    HTML = ("html", "HTML (*.html)", 3)
     
-    def __init__(self, extension, description):
+    def __init__(self, extension, description, id):
         self.extension = extension
         self.description = description
+        self.id = id
         
     def __str__(self):
         return self.description
@@ -608,6 +610,67 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
         save_location = f"All notes where saved in the same folder as the model" if export_folder_checkbox else f"All models where saved to {Path(export_directory).absolute()}"
     return f"{save_location} || Saved Notes: {stats[ResultType.success]} | No Note: {stats[ResultType.not_found]} | Failed to Save Note: {stats[ResultType.error]}"
 
+def import_note_from_disk(title: str, file_types: List[FileTypes], folder: Path) -> Union[ResultType, str]:
+    for file_type in file_types:
+        filepath = folder / f"{title}.{file_type.value[0]}"
+        if filepath.exists() and filepath.is_file():
+            try:
+                with open(filepath, 'r') as file:
+                    content = file.read()
+                    if file_type == FileTypes.HTML:
+                        content = html2markdown.convert(content)
+                return ResultType.success, content
+            except Exception as e:
+                return ResultType.error, str(e)
+    return ResultType.not_found, ""
+
+def import_all_notes(model_types, overwrite, pr=gr.Progress()):
+    if model_types == []:
+        return "No note types selected, nothing to import."
+    stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.skipped : 0, ResultType.error: 0}
+    file_types = sorted([FileTypes.from_description(file_type) for file_type in model_types], key=lambda x: x.value[2], reverse=True)
+    
+    def collect_stats(result : ResultType):
+        stats[result] += 1
+
+    for embedding in pr.tqdm(model_hijack.embedding_db.word_embeddings.values(), desc="Importing Textual Inversion Notes", total=len(model_hijack.embedding_db.word_embeddings.values()), unit="embeddings"):
+        sha256 = get_model_sha256(ModelType.Textual_Inversion, embedding.name)
+        if not overwrite and get_note(sha256) != "":
+            collect_stats(ResultType.skipped)
+            continue
+        result, note = import_note_from_disk(title=embedding.name, file_types=file_types, folder=Path(embedding.filename).parent)
+        if note != "":
+            set_note(model_hash=sha256, note=note, model_type=ModelType.Textual_Inversion)
+        collect_stats(result)
+    for name, path in pr.tqdm(shared.hypernetworks.items(), desc="Importing Hypernetwork Notes", total=len(shared.hypernetworks.items()), unit="hypernetworks"):
+        sha256 = get_model_sha256(ModelType.Hypernetwork, name)
+        if not overwrite and get_note(sha256) != "":
+            collect_stats(ResultType.skipped)
+            continue
+        result, note = import_note_from_disk(title=name, file_types=file_types, folder=Path(path).parent)
+        if note != "":
+            set_note(model_hash=sha256, note=note, model_type=ModelType.Hypernetwork)
+        collect_stats(result)
+    for name, checkpoint in pr.tqdm(sd_models.checkpoints_list.items(), desc="Importing Checkpoint Notes", total=len(sd_models.checkpoints_list.items()), unit="checkpoints"):
+        sha256 = get_model_sha256(ModelType.Checkpoint, checkpoint.name_for_extra)
+        if not overwrite and get_note(sha256) != "":
+            collect_stats(ResultType.skipped)
+            continue
+        result, note = import_note_from_disk(title=checkpoint.name_for_extra, file_types=file_types, folder=Path(checkpoint.filename).parent)
+        if note != "":
+            set_note(model_hash=sha256, note=note, model_type=ModelType.Checkpoint)
+        collect_stats(result)
+    for name, lora_on_disk in pr.tqdm(lora.available_loras.items(), desc="Importing LoRA Notes", total=len(lora.available_loras.items()), unit="LoRAs"):
+        sha256 = get_model_sha256(ModelType.LoRA, name)
+        if not overwrite and get_note(sha256) != "":
+            collect_stats(ResultType.skipped)
+            continue
+        result, note = import_note_from_disk(title=name, file_types=file_types, folder=Path(lora_on_disk.filename).parent)
+        if note != "":
+            set_note(model_hash=sha256, note=note, model_type=ModelType.LoRA)
+        collect_stats(result)
+    return f"Imported Notes: {stats[ResultType.success]} | No Note: {stats[ResultType.not_found]} | Skipped existing notes {stats[ResultType.not_found]}| Notes failed to import: {stats[ResultType.error]}"
+
 def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
     """
     Create the UI tab for model notes.
@@ -686,6 +749,13 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
             civit_stats = gr.Label(value="", label="Result")
             get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
 
+        with gr.Tab("Import (WIP)"):
+            import_model_types = gr.CheckboxGroup([str(filetype) for filetype in FileTypes if not filetype == FileTypes.CSV], label="Import Formats", info="Select note types to import.\nIf a model as multiple note formats then only the most right selected format will be imported")
+            import_overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes instead of skipping them", value=True)
+            import_button = gr.Button(value="Import", variant="primary", elem_id="model_notes_import_button")
+            import_stats = gr.Label(value="", label="Result")
+            import_button.click(fn=import_all_notes, inputs=[import_model_types, import_overwrite], outputs=[import_stats])
+
         with gr.Tab("Export"):
             file_type_picker = gr.Dropdown([str(filetype) for filetype in FileTypes], label="Export Format", value="Plaint text (*.txt)", elem_id="model_notes_export_formats", info="Select the format to convert the note to", interactive=True, multiselect=False, max_choice=1)
             with gr.Box():
@@ -693,7 +763,7 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                 export_directory = gr.Textbox(label="Export Directory Path", info="The folder where the notes should be saved instead", file_count="directory", elem_id="model_notes_export_folder_picker", visible=False, interactive=True)
                 export_folder_checkbox.change(fn=lambda checkbox: gr.update(visible=not checkbox), inputs=[export_folder_checkbox], outputs=[export_directory])
             export_name = gr.Dropdown(["Model Name", "Sha256"], label="Export Filename", info="Select how the note files should be named", value="Model Name", elem_id="model_notes_export_filename_formats", interactive=True, multiselect=False,  max_choice=1)
-            export_folder_overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing notes files or skip them instead", value=True, elem_id="model_notes_export_overwrite", interactive=True)
+            export_folder_overwrite = gr.Checkbox(label="Overwrite existing notes", info="Overwrite existing note files instead of skipping them", value=True, elem_id="model_notes_export_overwrite", interactive=True)
             export_button = gr.Button(value="Export", variant="primary", elem_id="model_notes_export_button")
             export_stats = gr.Label(value="", label="Result")
             export_button.click(fn=export_all_notes, inputs=[file_type_picker, export_folder_checkbox, export_directory, export_name, export_folder_overwrite], outputs=[export_stats])
