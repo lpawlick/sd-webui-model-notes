@@ -38,17 +38,32 @@ shared.reload_hypernetworks() # No hypernetworks are loaded yet so we have to lo
 md_renderer = utils.get_markdown_parser()
 
 class ModelType(Enum):
+    """
+    Enumeration of various types of models.
+    """
     Checkpoint = 1
     Hypernetwork = 2
     LoRA = 3
     Textual_Inversion = 4
 
 class ResultType(Enum):
+    """
+    Enumeration of possible result types after processing.
+    """
     success = 1
     not_found = 2
     error = 3
     skipped = 4
+
 class FileTypes(Enum):
+    """
+    Enumeration of supported file types along with their extensions, descriptions, and IDs.
+    
+    :param extension: The file extension.
+    :param description: The file type description.
+    :param id: The unique identifier for the file type.
+    """
+
     Plain_text = ("txt", "Plaint text (*.txt)", 0)
     CSV = ("csv", "Comma-Separated (*.csv)", 1)
     Markdown = ("md", "Markdown (*.md)", 2)
@@ -495,6 +510,11 @@ def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
     return output_str
 
 def get_textual_inversion_embeddings() -> List[str]:
+    """
+    Returns a list of all textual inversion embeddings names.
+    
+    :return: A sorted list of textual inversion embedding names.
+    """
     embeddings = []
     for embedding in model_hijack.embedding_db.word_embeddings.values():
         embeddings.append(embedding.name)
@@ -502,11 +522,21 @@ def get_textual_inversion_embeddings() -> List[str]:
     return embeddings
 
 def get_hypernetworks() -> List[str]:
+    """
+    Retrieves the names of available hypernetworks.
+    
+    :return: A sorted list of hypernetwork names.
+    """
     hypernetworks_names = list(shared.hypernetworks.keys())
     hypernetworks_names.sort()
     return hypernetworks_names
 
 def get_loras() -> List[str]:
+    """
+    Retrieves the names of available LoRAs.
+    
+    :return: A list of LoRA names.
+    """
     loras = []
     for name in lora.available_loras.keys():
         loras.append(name)
@@ -527,6 +557,16 @@ def toggle_editing_markdown(visible: bool):
     return visibility, gr.update(visible=visibility), gr.update(value=btn_text)
 
 def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: Path, overwrite: bool) -> ResultType:
+    """
+    Exports the given content to a file on disk.
+
+    :param title: The filename without extension.
+    :param content: The content to be written into the file, converted to the correct format.
+    :param file_type: The type of the file and content.
+    :param folder: The directory where the file will be saved.
+    :param overwrite: If True, the function will overwrite an existing file with the same name. If False, the function will return an error if the file already exists.
+    :return: A `ResultType` indicating the outcome of the operation. This can be `ResultType.success` if the operation was successful, `ResultType.not_found` if the content is empty, or `ResultType.error` if an error occurred during the operation (such as if the file already exists and `overwrite` is False).
+    """
     if content == "":
         return ResultType.not_found
     if file_type == FileTypes.HTML:
@@ -543,6 +583,17 @@ def export_note_to_disk(title: str, content: str, file_type: FileTypes, folder: 
     return ResultType.success
 
 def export_all_notes(file_type_picker, export_folder_checkbox, export_directory, export_name, export_folder_overwrite, pr=gr.Progress()):
+    """
+    Exports all notes to files on disk.
+
+    :param file_type_picker: The chosen file type to export as.
+    :param export_folder_checkbox: If True, notes will be saved in the same folder as their respective models. If False, all notes will be saved to a single directory specified by `export_directory`.
+    :param export_directory: The directory where all the notes will be saved if `export_folder_checkbox` is False.
+    :param export_name: The naming scheme for the exported files. If "Sha256", the files will be named after the sha256 hash of the model. Otherwise, they will be named after the model name.
+    :param export_folder_overwrite: If True, the function will overwrite existing files with the same name. If False, the function will skip files that already exist.
+    :param pr: A `gr.Progress` instance to monitor the progress of the operation.
+    :return: A string summarizing the result of the operation, including the number of successful saves, missing notes, and failed saves.
+    """
     if file_type_picker == "" or (not export_folder_checkbox and export_directory == "") or export_name == "":
         return "Please fill out all fields."
     stats = {ResultType.success: 0, ResultType.not_found: 0, ResultType.error: 0}
@@ -611,6 +662,14 @@ def export_all_notes(file_type_picker, export_folder_checkbox, export_directory,
     return f"{save_location} || Saved Notes: {stats[ResultType.success]} | No Note: {stats[ResultType.not_found]} | Failed to Save Note: {stats[ResultType.error]}"
 
 def import_note_from_disk(title: str, file_types: List[FileTypes], folder: Path) -> Union[ResultType, str]:
+    """
+    Imports a note from a file on disk.
+
+    :param title: The filename without extension from which the note will be imported.
+    :param file_types: A list of possible file types that will be tried in order until a file with a matching type is found.
+    :param folder: The directory where the file is expected to be found.
+    :return: A tuple where the first element is a `ResultType` indicating the outcome of the operation. This can be `ResultType.success` if the operation was successful, `ResultType.not_found` if no file was found with any of the given file types, or `ResultType.error` if an error occurred during the operation (such as a file read error). The second element is the content of the note if the operation was successful, or an error message if an error occurred, or an empty string if no file was found.
+    """
     for file_type in file_types:
         filepath = folder / f"{title}.{file_type.value[0]}"
         if filepath.exists() and filepath.is_file():
@@ -625,6 +684,17 @@ def import_note_from_disk(title: str, file_types: List[FileTypes], folder: Path)
     return ResultType.not_found, ""
 
 def import_all_notes(model_types, overwrite, import_name, import_folder_checkbox, import_directory, pr=gr.Progress()):
+    """
+    Imports all notes from files on disk to the corresponding models.
+
+    :param model_types: A list of file types that the notes are stored in. The function will try to import the note from the file types in the given order until a file with a matching type is found.
+    :param overwrite: If True, existing notes will be overwritten. If False, existing notes will be kept and new notes will be skipped.
+    :param import_name: Determines whether the title of the file to import from is the SHA256 hash of the model or the name of the model. Must be either "Sha256" or "Name".
+    :param import_folder_checkbox: If True, the function will look for the files in the same directory as the corresponding model. If False, the function will look for the files in the directory specified by `import_directory`.
+    :param import_directory: The directory where the function will look for the files if `import_folder_checkbox` is False.
+    :param pr: A progress bar object to display the progress of the operation.
+    :return: A string summarizing the result of the operation, including the number of notes successfully imported, the number of notes not found, the number of existing notes skipped, and the number of notes that failed to import.
+    """
     if model_types == []:
         return "No note types selected, nothing to import."
     if not import_folder_checkbox and import_directory == "":
@@ -751,7 +821,7 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
             civit_stats = gr.Label(value="", label="Result")
             get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
 
-        with gr.Tab("Import (WIP)"):
+        with gr.Tab("Import"):
             import_model_types = gr.CheckboxGroup([str(filetype) for filetype in FileTypes if not filetype == FileTypes.CSV], label="Import Formats", info="Select note types to import.\nIf a model as multiple note formats then only the most right selected format will be imported")
             with gr.Box():
                 import_folder_checkbox = gr.Checkbox(label="Import from the models folder", info="Import notes from the folder where models are stored (ignored for csv)", value=True, elem_id="model_notes_import_folder_checkbox", interactive=True)
