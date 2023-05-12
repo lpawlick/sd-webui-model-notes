@@ -66,6 +66,7 @@ function setup_note_extra_models()
     });
 }
 
-window.onload = function() {
+window.addEventListener('load', function() 
+{
     setup_note_extra_models();
-};
+});
