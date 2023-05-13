@@ -78,7 +78,7 @@ function model_notes_extra_model_button_setup()
                 {
                     // Add the note button to the model cards
                     setup_note_extra_models();
-                    
+                    model_notes_extra_model_button_refresh_setup(); // Setup for the refresh button
                     // We only need to hide note previews once so remove the observer
                     observer.unobserve(entry.target);
                 }
@@ -92,6 +92,33 @@ function model_notes_extra_model_button_setup()
     elements.forEach(element => {
         observer.observe(element);
     });
+}
+
+function model_notes_extra_model_button_refresh_setup() 
+{
+    // Select the container for all embedding cards and take the parent of the parent which gets a "pending" class when the cards are refreshed
+    const element = document.getElementById('txt2img_textual_inversion_cards').parentElement.parentElement;
+
+    // Create a new MutationObserver
+    const observer = new MutationObserver(function(mutationsList) {
+    for (let mutation of mutationsList) 
+    {
+        if (
+            mutation.type === 'attributes' &&
+            mutation.attributeName === 'class' &&
+            !element.classList.contains('pending') &&
+            mutation.oldValue && mutation.oldValue.includes('pending')
+        ) 
+        {
+        // "pending" class has been removed, readd the note button to new cards
+        setup_note_extra_models();
+        break;
+        }
+    }
+    });
+
+    // Start observing the class attribute for changes
+    observer.observe(element, { attributes: true, attributeOldValue: true });
 }
 
 window.addEventListener('load', function() 
