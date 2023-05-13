@@ -66,7 +66,35 @@ function setup_note_extra_models()
     });
 }
 
+function model_notes_extra_model_button_setup()
+{
+    // Create a new Intersection Observer instance for the extra network tabs
+    const observer = new IntersectionObserver((entries, observer) => 
+    {
+        entries.forEach(entry => 
+            {
+                // Check if the element is intersecting/visible
+                if (entry.isIntersecting) 
+                {
+                    // Add the note button to the model cards
+                    setup_note_extra_models();
+                    
+                    // We only need to hide note previews once so remove the observer
+                    observer.unobserve(entry.target);
+                }
+        });
+    });
+
+    // Get all elements with the class "extra-networks"
+    const elements = document.querySelectorAll('.extra-networks');
+
+    // Observe each element
+    elements.forEach(element => {
+        observer.observe(element);
+    });
+}
+
 window.addEventListener('load', function() 
 {
-    setup_note_extra_models();
+    model_notes_extra_model_button_setup();
 });
