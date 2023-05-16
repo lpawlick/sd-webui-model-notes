@@ -50,11 +50,11 @@ function setup_note_extra_models()
             // Get the text content of the "name" div
             const nameText = nameDiv.textContent;
 
-            // Get the selected tab text
-            const selectedTabText = card.closest('[id*="_extra_tabs"]').querySelector('.tab-nav .selected').textContent;
+            // Get the tab name from the card container id
+            const selectedTabText = card.parentElement.id.replace(/.*?_(.*)_cards/, '$1');
 
             // Call the create_popup function with the name and selected tab text as arguments
-            note_extra_models_create_popup(nameText, selectedTabText);
+            note_extra_models_create_popup(nameText, selectedTabText, card);
 
             // Set the background color of the emoji span to the hover color of the card
             emojiSpan.style.backgroundColor = "rgba(0, 128, 255, 0.2)";

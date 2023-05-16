@@ -9,6 +9,10 @@ from modules.sd_hijack import model_hijack
 from modules.ui import create_refresh_button, save_style_symbol
 from modules import shared, sd_models
 from modules.ui_components import FormRow, ToolButton
+from modules import ui_extra_networks
+from modules.ui_extra_networks_textual_inversion import ExtraNetworksPageTextualInversion
+from modules.ui_extra_networks_checkpoints import ExtraNetworksPageCheckpoints
+from modules.ui_extra_networks_hypernets import ExtraNetworksPageHypernetworks
 import sqlite3
 from sqlite3 import Error
 from pathlib import Path
@@ -28,6 +32,7 @@ import os
 # Build-in extensions are loaded after extensions so we need to add it manually
 sys.path.append(str(Path(extensions_builtin_dir, "Lora")))
 import lora
+from ui_extra_networks_lora import ExtraNetworksPageLora
 # Remove from path again so we don't affect other modules
 sys.path.remove(str(Path(extensions_builtin_dir, "Lora")))
 
@@ -333,6 +338,7 @@ def on_app_started(gradio, fastapi) -> None:
     create_connection(Path(Path(__file__).parent.parent.resolve(), "notes.db"))
     setup_db()
     add_api_endpoints(fastapi)
+    overwrite_load_descriptions()
 
 def get_model_sha256(model_type : ModelType, model_name : str) -> str:
     """
@@ -865,6 +871,26 @@ def on_script_unloaded() -> None:
     """
     if conn:
         conn.close()
+
+def overwrite_load_descriptions():
+
+    def new_load_descriptions(self, path):
+        if isinstance(self, ExtraNetworksPageTextualInversion):
+            sha256 = get_model_sha256(ModelType.Textual_Inversion, os.path.basename(path))
+            return get_note(sha256)
+        elif isinstance(self, ExtraNetworksPageHypernetworks):
+            sha256 = get_model_sha256(ModelType.Hypernetwork, os.path.basename(path))
+            return get_note(sha256)
+        elif isinstance(self, ExtraNetworksPageCheckpoints):
+            sha256 = get_model_sha256(ModelType.Checkpoint, os.path.basename(path))
+            return get_note(sha256)
+        elif isinstance(self, ExtraNetworksPageLora):
+            sha256 = get_model_sha256(ModelType.LoRA, os.path.basename(path))
+            return get_note(sha256)
+        else:
+            return ""
+
+    ui_extra_networks.ExtraNetworksPage.find_description = new_load_descriptions
 
 script_callbacks.on_ui_tabs(on_ui_tabs)
 script_callbacks.on_ui_settings(on_ui_settings)

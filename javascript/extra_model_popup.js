@@ -55,8 +55,16 @@ function model_notes_closePopup(popup) {
   }, 150);
 }
 
+// Updates the extra model note preview
+function model_notes_extra_model_inject_new_description(note, card)
+{
+  const description = card.querySelector(".description")
+  description.innerHTML = note;
+}
+
 // Create a popup containing a textbox
-async function note_extra_models_create_popup(name, model_type) {
+async function note_extra_models_create_popup(name, model_type, card) 
+{
   if (model_notes_isPopupOpen) return; // Prevent opening multiple popups
 
   model_notes_isPopupOpen = true;
@@ -71,7 +79,7 @@ async function note_extra_models_create_popup(name, model_type) {
     try {
       const note = await model_notes_getNote(name, model_type);
       document.body.style.cursor = 'auto'; // Change cursor back to normal
-      model_notes_create_actual_popup(name, model_type, note, true);
+      model_notes_create_actual_popup(name, model_type, note, true, card);
       icons.forEach(icon => {
         icon.style.cursor = 'pointer';
         });
@@ -87,7 +95,7 @@ async function note_extra_models_create_popup(name, model_type) {
 }
 
 
-function model_notes_create_actual_popup(name, model_type, note, markdown) 
+function model_notes_create_actual_popup(name, model_type, note, markdown, card) 
 {
   // Create required elements
   const popup = document.createElement("div");
@@ -178,6 +186,10 @@ function model_notes_create_actual_popup(name, model_type, note, markdown)
         if (saveModelNoteElement)
         {
           await model_notes_saveNote(model_type, name, textBox.value);
+          if (!opts.model_note_hide_extra_note_preview)
+          {
+            model_notes_extra_model_inject_new_description(textBox.value, card);
+          };
         }
         markdownContainer.style.maxWidth = "100%";
         textBox.style.visibility = "hidden";
@@ -203,6 +215,10 @@ function model_notes_create_actual_popup(name, model_type, note, markdown)
     saveButton.addEventListener("mouseleave", () => saveButton.style.cursor = "auto");
     saveButton.addEventListener("click", async () => {
       await model_notes_saveNote(model_type, name, textBox.value);
+      if (!opts.model_note_hide_extra_note_preview)
+      {
+        model_notes_extra_model_inject_new_description(textBox.value, card);
+      };
     });
 
     // Append elements
@@ -210,8 +226,10 @@ function model_notes_create_actual_popup(name, model_type, note, markdown)
   }
   if (!saveModelNoteElement)
   {
-    textBox.addEventListener("input", async () => {
+    textBox.addEventListener("input", async () => 
+    {
       await model_notes_saveNote(model_type, name, textBox.value);
+      model_notes_extra_model_inject_new_description(textBox.value, card);
     });
 }
 
