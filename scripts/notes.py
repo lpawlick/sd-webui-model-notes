@@ -861,7 +861,8 @@ def on_ui_settings() -> None:
     """
     shared.opts.add_option("model_note_autosave", shared.OptionInfo(default=False, label="Enable autosaving edits in note fields", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
     shared.opts.add_option("model_note_markdown", shared.OptionInfo(default=False, label="Enable Markdown support", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
-    shared.opts.add_option("model_note_hide_extra_note_preview", shared.OptionInfo(default=False, label="Hide extra model note preview", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
+    shared.opts.add_option("model_note_hide_extra_note_preview", shared.OptionInfo(default=True, label="Hide extra model note preview", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
+    shared.opts.add_option("model_note_hide_extra_note_inject", shared.OptionInfo(default=False, label="Inject note into extra note preview", component=gr.Checkbox, section=("model-notes", "Model-Notes")))
 
 def on_script_unloaded() -> None:
     """

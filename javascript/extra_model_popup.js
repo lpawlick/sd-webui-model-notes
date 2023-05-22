@@ -186,7 +186,7 @@ function model_notes_create_actual_popup(name, model_type, note, markdown, card)
         if (saveModelNoteElement)
         {
           await model_notes_saveNote(model_type, name, textBox.value);
-          if (!opts.model_note_hide_extra_note_preview)
+          if (!opts.model_note_hide_extra_note_preview && opts.model_note_hide_extra_note_inject)
           {
             model_notes_extra_model_inject_new_description(textBox.value, card);
           };
@@ -215,7 +215,7 @@ function model_notes_create_actual_popup(name, model_type, note, markdown, card)
     saveButton.addEventListener("mouseleave", () => saveButton.style.cursor = "auto");
     saveButton.addEventListener("click", async () => {
       await model_notes_saveNote(model_type, name, textBox.value);
-      if (!opts.model_note_hide_extra_note_preview)
+      if (!opts.model_note_hide_extra_note_preview && opts.model_note_hide_extra_note_inject)
       {
         model_notes_extra_model_inject_new_description(textBox.value, card);
       };
@@ -229,7 +229,10 @@ function model_notes_create_actual_popup(name, model_type, note, markdown, card)
     textBox.addEventListener("input", async () => 
     {
       await model_notes_saveNote(model_type, name, textBox.value);
-      model_notes_extra_model_inject_new_description(textBox.value, card);
+      if (!opts.model_note_hide_extra_note_preview && opts.model_note_hide_extra_note_inject)
+      {
+        model_notes_extra_model_inject_new_description(textBox.value, card);
+      }
     });
 }
 
