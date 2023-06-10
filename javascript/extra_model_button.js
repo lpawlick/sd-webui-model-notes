@@ -103,16 +103,17 @@ function model_notes_extra_model_button_refresh_setup()
     const observer = new MutationObserver(function(mutationsList) {
     for (let mutation of mutationsList) 
     {
-        if (
+        if 
+        (
             mutation.type === 'attributes' &&
             mutation.attributeName === 'class' &&
             !element.classList.contains('pending') &&
             mutation.oldValue && mutation.oldValue.includes('pending')
         ) 
         {
-        // "pending" class has been removed, readd the note button to new cards
-        setup_note_extra_models();
-        break;
+            // "pending" class has been removed, readd the note button to new cards
+            setup_note_extra_models();
+            break;
         }
     }
     });
@@ -121,7 +122,27 @@ function model_notes_extra_model_button_refresh_setup()
     observer.observe(element, { attributes: true, attributeOldValue: true });
 }
 
-window.addEventListener('load', function() 
+window.addEventListener('DOMContentLoaded', function() 
 {
-    model_notes_extra_model_button_setup();
+    // select the target node
+    var target = document.body;
+
+    // create an observer instance
+    var observer = new MutationObserver(function(mutations) 
+    {
+        // if our element is now in the DOM
+        if (document.querySelector('#txt2img_textual_inversion_cards')) 
+        {
+            model_notes_extra_model_button_setup();
+
+            // we don't need to keep observing
+            observer.disconnect();
+        }
+    });
+
+    // configuration of the observer
+    var config = { childList: true, subtree: true };
+
+    // pass in the target node, as well as the observer options
+    observer.observe(target, config);
 });
