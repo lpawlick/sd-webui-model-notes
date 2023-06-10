@@ -417,6 +417,35 @@ def download_description_from_civit(model_type : ModelType, model_name : str, do
         return download_description_from_civit(model_type, model_name, download_markdown)
     return ""
 
+def download_image_from_civitai(model_type : ModelType, model_name : str, local_path: str) -> bool:
+    """
+    Downloads and saves a preview image from civitai.
+
+    :param model_type: The type of the model.
+    :param model_name: The name of the model.
+    :param local_path: The path where the image should be saved.
+    :return: Whether the image was successfully downloaded.
+    """
+    model_version_info : Response = requests.get(f"https://civitai.com/api/v1/model-versions/by-hash/{get_model_sha256(model_type, model_name)}")
+    if model_version_info.status_code == 200:
+        model_version_info_json : dict = model_version_info.json()
+        civitai_preview_images : List[dict] = model_version_info_json.get("images")
+        if len(civitai_preview_images) > 0:
+            image_url = civitai_preview_images[0].get("url")
+            image_data = requests.get(image_url, stream=True)
+            if image_data.status_code == 200:
+                with open(local_path, 'wb') as file:
+                    for chunk in image_data.iter_content(chunk_size=8192):
+                        file.write(chunk)
+                return True
+            elif image_data.status_code == 429:
+                time.sleep(int(image_data.headers["Retry-After"]))
+                return download_image_from_civitai(model_type, model_name)
+    elif model_version_info.status_code == 429:
+        time.sleep(int(model_version_info.headers["Retry-After"]))
+        return download_image_from_civitai(model_type, model_name)
+    return False
+
 def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> str:
     """
     Gets the model description from Civitai and updates the model note.
@@ -432,12 +461,15 @@ def on_civitai(model_type : ModelType, model_name : str, model_note : str) -> st
     else:
         return gr.update(value=model_note, interactive=True)
 
-def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
+def on_get_all_civitai(model_types, overwrite : bool, dl_markdown : bool, dl_preview_image : bool, dl_preview_image_overwrite : bool, pr=gr.Progress()):
     """
     Gets the model descriptions for all selected models from civitai
 
     :param model_types: The selected model types.
     :param overwrite: Whether to overwrite existing notes.
+    :param dl_markdown: Whether to convert the description in into the markdown format
+    :param dl_preview_image: Whether to download the preview image
+    :param dl_preview_image_overwrite: Whether to overwrite existing preview images
     :param pr: The progress bar. Do not set this manually.
     :return: A string containing information about the download
     """
@@ -448,11 +480,24 @@ def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
     if not shared.opts.model_note_markdown:
         dl_markdown = False
 
-    stats = {model: {"success": 0, "failed": 0, "skipped": 0} for model in model_types}
+    stats = {model: {"success": 0, "failed": 0, "skipped": 0, "img_success": 0, "img_failed": 0, "img_skipped": 0} for model in model_types}
 
     if "Textual Inversion" in model_types:
         textual_inversions = get_textual_inversion_embeddings()
+        if dl_preview_image:
+            extra_page = ExtraNetworksPageTextualInversion()
         for embedding in pr.tqdm(textual_inversions, desc="Downloading Textual Inversion Descriptions", total=len(textual_inversions), unit="embeddings"):
+            if dl_preview_image:
+                path, ext = os.path.splitext(model_hijack.embedding_db.word_embeddings.get(embedding).filename)
+                preview_path = extra_page.find_preview(path)
+                if preview_path is None or dl_preview_image_overwrite:
+                    if download_image_from_civitai(ModelType.Textual_Inversion, embedding, f"{path}.preview.{shared.opts.samples_format}"):
+                        stats["Textual Inversion"]["img_success"] += 1
+                    else:
+                        stats["Textual Inversion"]["img_failed"] += 1
+                else:
+                    stats["Textual Inversion"]["img_skipped"] += 1
+            
             description = download_description_from_civit(ModelType.Textual_Inversion, embedding, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Textual_Inversion, embedding))
@@ -467,7 +512,20 @@ def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
 
     if "Hypernetworks" in model_types:
         hypernetworks = get_hypernetworks()
+        if dl_preview_image:
+            extra_page = ExtraNetworksPageHypernetworks()
         for hypernetwork in pr.tqdm(hypernetworks, desc="Downloading Hypernetwork Descriptions", total=len(hypernetworks), unit="hypernetworks"):
+            if dl_preview_image:
+                path, ext = os.path.splitext(shared.hypernetworks.get(hypernetwork))
+                preview_path = extra_page.find_preview(path)
+                if preview_path is None or dl_preview_image_overwrite:
+                    if download_image_from_civitai(ModelType.Hypernetwork, hypernetwork, f"{path}.preview.{shared.opts.samples_format}"):
+                        stats["Hypernetworks"]["img_success"] += 1
+                    else:
+                        stats["Hypernetworks"]["img_failed"] += 1
+                else:
+                    stats["Hypernetworks"]["img_skipped"] += 1
+            
             description = download_description_from_civit(ModelType.Hypernetwork, hypernetwork, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Hypernetwork, hypernetwork))
@@ -482,7 +540,20 @@ def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
 
     if "Checkpoints" in model_types:
         checkpoints = checkpoint_tiles()
+        if dl_preview_image:
+            extra_page = ExtraNetworksPageCheckpoints()
         for checkpoint in pr.tqdm(checkpoints, desc="Downloading Checkpoint Descriptions", total=len(checkpoints), unit="checkpoints"):
+            if dl_preview_image:
+                path, ext = os.path.splitext(sd_models.checkpoints_list.get(checkpoint).filename)
+                preview_path = extra_page.find_preview(path)
+                if preview_path is None or dl_preview_image_overwrite:
+                    if download_image_from_civitai(ModelType.Checkpoint, checkpoint, f"{path}.{shared.opts.samples_format}"):
+                        stats["Checkpoints"]["img_success"] += 1
+                    else:
+                        stats["Checkpoints"]["img_failed"] += 1
+                else:
+                    stats["Checkpoints"]["img_skipped"] += 1
+            
             description = download_description_from_civit(ModelType.Checkpoint, checkpoint, dl_markdown)
             if not overwrite:
                 note = get_note(model_hash=get_model_sha256(ModelType.Checkpoint, checkpoint))
@@ -497,22 +568,35 @@ def on_get_all_civitai(model_types, overwrite, dl_markdown, pr=gr.Progress()):
 
     if "LoRA" in model_types:
         loras = get_loras()
-        for lora in pr.tqdm(loras, desc="Downloading LoRA Descriptions", total=len(loras), unit="LoRAs"):
-            description = download_description_from_civit(ModelType.LoRA, lora, dl_markdown)
+        if dl_preview_image:
+            extra_page = ExtraNetworksPageLora()
+        for lora_item in pr.tqdm(loras, desc="Downloading LoRA Descriptions", total=len(loras), unit="LoRAs"):
+            if dl_preview_image:
+                path, ext = os.path.splitext(lora.available_loras.get(lora_item).filename)
+                preview_path = extra_page.find_preview(path)
+                if preview_path is None or dl_preview_image_overwrite:
+                    if download_image_from_civitai(ModelType.LoRA, lora_item, f"{path}.{shared.opts.samples_format}"):
+                        stats["LoRA"]["img_success"] += 1
+                    else:
+                        stats["LoRA"]["img_failed"] += 1
+                else:
+                    stats["LoRA"]["img_skipped"] += 1
+            
+            description = download_description_from_civit(ModelType.LoRA, lora_item, dl_markdown)
             if not overwrite:
-                note = get_note(model_hash=get_model_sha256(ModelType.LoRA, lora))
+                note = get_note(model_hash=get_model_sha256(ModelType.LoRA, lora_item))
                 if note != "":
                     stats["LoRA"]["skipped"] += 1
                     continue
             if description != "":
-                set_note(model_hash=get_model_sha256(ModelType.LoRA, lora), note=description, model_type=ModelType.LoRA)
+                set_note(model_hash=get_model_sha256(ModelType.LoRA, lora_item), note=description, model_type=ModelType.LoRA)
                 stats["LoRA"]["success"] += 1
             else:
                 stats["LoRA"]["failed"] += 1
 
     output_str = ""
     for key, value in stats.items():
-        output_str += f"{key}: {value['success']} succeeded, {value['failed']} failed, and {value['skipped']} skipped.\n"
+        output_str += f"{key}: Descriptions: {value['success']} succeeded, {value['failed']} failed, and {value['skipped']} skipped. \nPreviews: {value['img_success']} succeeded, {value['img_failed']} failed, and {value['img_skipped']} skipped. | "
     return output_str
 
 def get_textual_inversion_embeddings() -> List[str]:
@@ -823,9 +907,12 @@ def on_ui_tabs() -> Tuple[gr.Blocks, str, str]:
                 dl_markdown = gr.Checkbox(value=True, label="Convert Html to Markdown", info="Convert Html to Markdown instead of removing it", interactive=True)
             else:
                 dl_markdown = gr.Checkbox(value=False, label="Convert Html to Markdown", info="Convert Html to Markdown instead of removing it (Needs markdown support enabled in the settings)", interactive=False)
+            with gr.Box():
+                dl_preview_image = gr.Checkbox(value=True, label="Download preview image from Civitai", info="Download the first preview image from civitai that is then shown in the extra network tabs", interactive=True)
+                dl_preview_image_overwrite = gr.Checkbox(value=False, label="Overwrite existing preview images", info="Overwrite existing preview images with images from civitai", interactive=True)
             get_all_button = gr.Button(value="Get all descriptions from Civitai", variant="primary")
             civit_stats = gr.Label(value="", label="Result")
-            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown], outputs=[civit_stats])
+            get_all_button.click(fn=on_get_all_civitai, inputs=[model_types, overwrite, dl_markdown, dl_preview_image, dl_preview_image_overwrite], outputs=[civit_stats])
 
         with gr.Tab("Import"):
             import_model_types = gr.CheckboxGroup([str(filetype) for filetype in FileTypes if not filetype == FileTypes.CSV], label="Import Formats", info="Select note types to import.\nIf a model as multiple note formats then only the most right selected format will be imported")
