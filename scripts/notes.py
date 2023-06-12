@@ -402,7 +402,7 @@ def download_description_from_civit(model_type : ModelType, model_name : str, do
         model_info : Response = requests.get(f"https://civitai.com/api/v1/models/{civitai_model_id}")
         if model_info.status_code == 200:
             model_info_json : dict = model_info.json()
-            formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{model_version_info_json.get("trainedWords")}'
+            formatted_model_description : str = f'Model Description:\n{model_info_json.get("description")}\n\nVersion Description:\n{model_version_info_json.get("description")}\n\nTrigger Words:\n{", ".join(model_version_info_json.get("trainedWords"))}'
             if download_markdown:
                 formatted_model_description = html2markdown.convert(formatted_model_description)
             else:
