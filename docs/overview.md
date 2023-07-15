@@ -1,5 +1,7 @@
 # Stable-diffusion-webui model notes
 
+![An overview of the extension](./images/overview.png)
+
 This is an extension for the [AUTOMATIC1111 webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui), which enables the creating, editing and deleting of notes for stable diffusion models, embeddings, hypernetworks and LoRAs right within the generation interface. Additionally it allows to downloading notes and import or export them in a variety of formats.
 
 ## Features Overview
