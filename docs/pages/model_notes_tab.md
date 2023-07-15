@@ -53,7 +53,7 @@ Any overwritten notes cannot be recovered, unless you have a backup!
 If checked then it will try to convert the html tags to markdown. This will should preserve any formatting, like **bold** or *italic* text, [links](https://github.com/lpawlick/sd-webui-model-notes) or images. Otherwise any html tags will be stripped and only the raw text will be kept.
 
 ```{note}
-This option is only available if markdown is supported enabled in the settings!
+This option is only available if markdown support is enabled in the settings!
 ```
 
 ### Download preview image from Civitai
