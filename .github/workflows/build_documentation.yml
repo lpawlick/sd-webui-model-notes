@@ -38,7 +38,7 @@ jobs:
           echo "::set-output name=current_repo::$(basename $GITHUB_REPOSITORY)"
 
       - name: Push to documentation.github.io
-        uses: d-m/github-push-action@master
+        uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           repository: lpawlick/lpawlick.github.io
