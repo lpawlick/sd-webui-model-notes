@@ -1,0 +1,46 @@
+name: Build and Publish Documentation
+on:
+  push:
+    paths:
+      - 'docs/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Python 3.11
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.11
+
+      - name: Install Python dependencies
+        run: |
+          cd docs
+          pip install -r requirements.txt
+
+      - name: Build Documentation
+        run: |
+          TZ=UTC sphinx-build -b html docs _build
+
+      - name: Set up Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Extract Repository Information
+        id: extract_repo
+        run: |
+          echo "::set-output name=current_repo::$(basename $GITHUB_REPOSITORY)"
+          echo "::set-output name=gh_pages_repo::lpawlick.github.io"
+
+      - name: Push to documentation.github.io
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ steps.extract_repo.outputs.gh_pages_repo }}
+          branch: main
+          folder: projects/${{ steps.extract_repo.outputs.current_repo }}
