@@ -35,12 +35,11 @@ jobs:
         id: extract_repo
         run: |
           echo "::set-output name=current_repo::$(basename $GITHUB_REPOSITORY)"
-          echo "::set-output name=gh_pages_repo::lpawlick.github.io"
 
       - name: Push to documentation.github.io
-        uses: ad-m/github-push-action@v0.6.0
+        uses: d-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ steps.extract_repo.outputs.gh_pages_repo }}
+          repository: lpawlick/lpawlick.github.io
           branch: main
           folder: projects/${{ steps.extract_repo.outputs.current_repo }}
