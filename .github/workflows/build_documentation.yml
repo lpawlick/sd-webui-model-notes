@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_and_push:
     runs-on: ubuntu-latest
 
     steps:
@@ -41,5 +41,9 @@ jobs:
             cp -r ./_build/* lpawlick.github.io/projects/${{ steps.extract_repo.outputs.current_repo }}/
             cd lpawlick.github.io
             git add .
-            git commit -m "${{ github.event.head_commit.message }}"
-            git push https://${{ secrets.ACCESS_TOKEN }}@github.com/lpawlick/lpawlick.github.io.git origin main
+            COMMIT_MESSAGE="${{ github.event.head_commit.message }}"
+            if [ -z "$COMMIT_MESSAGE" ]; then
+              COMMIT_MESSAGE="Manual ${{ steps.extract_repo.outputs.current_repo }} Documentation Update"
+            fi
+            git commit -m "$COMMIT_MESSAGE"
+            git push https://${{ secrets.ACCESS_TOKEN }}@github.com/lpawlick/lpawlick.github.io.git
