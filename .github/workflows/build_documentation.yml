@@ -27,20 +27,19 @@ jobs:
         run: |
           TZ=UTC sphinx-build -b html docs _build
 
-      - name: Set up Git
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-
       - name: Extract Repository Information
         id: extract_repo
         run: |
           echo "::set-output name=current_repo::$(basename $GITHUB_REPOSITORY)"
 
-      - name: Push to documentation.github.io
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          repository: lpawlick/lpawlick.github.io
-          branch: main
-          folder: projects/${{ steps.extract_repo.outputs.current_repo }}
+      - name: Deploy to lpawlick.github.io
+        run: |
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git clone https://${{ secrets.ACCESS_TOKEN }}@github.com/lpawlick/lpawlick.github.io.git
+            mkdir -p lpawlick.github.io/projects/sd-webui-model-notes/
+            cp -r ./_build/* lpawlick.github.io/projects/${{ steps.extract_repo.outputs.current_repo }}/
+            cd lpawlick.github.io
+            git add .
+            git commit -m "${{ github.event.head_commit.message }}"
+            git push https://${{ secrets.ACCESS_TOKEN }}@github.com/lpawlick/lpawlick.github.io.git origin main
